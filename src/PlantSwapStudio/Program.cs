@@ -994,43 +994,72 @@ namespace PlantSwap.App
         /// 微软拼音在 SDL 窗口上不出原生候选窗（SDL 的 UI-less 模式把它藏了），
         /// 但组合串和候选词通过 IMM 还能读到，所以这里补一个轻量候选窗。
         /// </summary>
+        // 候选窗缓存：QQ拼音这类 TSF 输入法偶尔会闪一帧空数据，直接缓存住就不闪了
+        Program.ImeState2 _imeCache;
+        double _imeCacheAt, _imeReadAt;
+
         void DrawImeOverlay()
         {
             var io = ImGui.GetIO();
-            if (!io.WantTextInput) { _imeAnchorSet = false; _imeLastX = _imeLastY = float.NaN; return; }
-            var st = Program.ReadIme(FindMyHwnd());
-            if (!st.Active) return;
+            var hwnd = FindMyHwnd();
+            if (!io.WantTextInput)
+            {
+                if (_imeCache != null)
+                {
+                    // 丢焦点：把还挂着的组合取消掉，否则点回来会卡住
+                    if (hwnd != IntPtr.Zero) Program.CancelComposition(hwnd);
+                    _imeCache = null;
+                }
+                _imeAnchorSet = false; _imeLastX = _imeLastY = float.NaN;
+                return;
+            }
+
+            // 每帧都去问输入法会让 TSF 输入法反复同步，候选数据时有时无 → 闪。
+            // 限到大约 15Hz 轮询，其余帧直接用缓存。
+            if (gameTimeSeconds - _imeReadAt > 0.066)
+            {
+                _imeReadAt = gameTimeSeconds;
+                var fresh = hwnd != IntPtr.Zero ? Program.ReadIme(hwnd) : null;
+                if (fresh != null && fresh.Active) { _imeCache = fresh; _imeCacheAt = gameTimeSeconds; }
+            }
+            if (_imeCache != null && gameTimeSeconds - _imeCacheAt > 0.35) _imeCache = null;   // 0.35s 内保持上一帧，消抖
+            var cur = _imeCache;
+            if (cur == null || !cur.Active) return;
 
             var dl = ImGui.GetForegroundDrawList();
             float lh = ImGui.GetTextLineHeight();
             var p = _imeAnchorSet ? _imeAnchor : new System.Numerics.Vector2(io.MousePos.X, io.MousePos.Y + 26);
 
-            // 拼音串
-            string comp = string.IsNullOrEmpty(st.Comp) ? "" : st.Comp;
+            string comp = cur.Comp ?? "";
+            int pageStart = Math.Max(0, cur.PageStart);
+            int remain = Math.Max(0, cur.Cand.Count - pageStart);
+            int pageCount = cur.PageSize > 1 ? cur.PageSize : Math.Min(9, remain);
+
+            // 先量一遍总宽高，铺一层底，免得候选字和下拉列表糊在一起
+            float w = Math.Max(ImGui.CalcTextSize(comp).X, 120f);
+            for (int i = 0; i < pageCount && pageStart + i < cur.Cand.Count; i++)
+                w = Math.Max(w, ImGui.CalcTextSize((i + 1) + "  " + cur.Cand[pageStart + i]).X);
+            float hCompose = comp.Length > 0 ? lh + 8 : 0f;
+            float hCand = pageCount * (lh + 4);
+            var bg0 = new System.Numerics.Vector2(p.X - 6, p.Y - 4);
+            var bg1 = new System.Numerics.Vector2(p.X + w + 12, p.Y + hCompose + hCand + 4);
+            dl.AddRectFilled(bg0, bg1, 0xF2141414u, 5f);
+            dl.AddRect(bg0, bg1, 0xFF6FA8D8u, 5f);
+
             if (comp.Length > 0)
             {
-                var sz = ImGui.CalcTextSize(comp);
-                float w = Math.Max(sz.X + 14f, 60f);
-                dl.AddRectFilled(p + new System.Numerics.Vector2(-5, -3), p + new System.Numerics.Vector2(w, lh + 5), 0xF0121212u, 4f);
-                dl.AddRect(p + new System.Numerics.Vector2(-5, -3), p + new System.Numerics.Vector2(w, lh + 5), 0xFF6FA8D8u, 4f);
-                dl.AddText(p, 0xFFEAF2FFu, comp);
-                p.Y += lh + 6;
+                dl.AddText(p, 0xFF8FD0FFu, comp);
+                p.Y += lh + 8;
             }
 
-            // 候选词：只显示当前这一页，序号按页内从 1 开始
-            int pageStart = Math.Max(0, st.PageStart);
-            int remain = Math.Max(0, st.Cand.Count - pageStart);
-            // 微软拼音有时只报 pageSize=1，但它其实给了整页候选，这里兜一把
-            int pageCount = st.PageSize > 1 ? st.PageSize : Math.Min(9, remain);
-            for (int i = 0; i < pageCount && pageStart + i < st.Cand.Count; i++)
+            for (int i = 0; i < pageCount && pageStart + i < cur.Cand.Count; i++)
             {
-                string item = (i + 1) + "  " + st.Cand[pageStart + i];
+                string item = (i + 1) + "  " + cur.Cand[pageStart + i];
                 var sz = ImGui.CalcTextSize(item);
-                bool sel = (pageStart + i) == st.Sel;
-                var a = new System.Numerics.Vector2(p.X - 5, p.Y - 2);
-                var b = new System.Numerics.Vector2(p.X + Math.Max(sz.X, 90f) + 8, p.Y + lh + 2);
-                dl.AddRectFilled(a, b, sel ? 0xFF2A5C8Fu : 0xF0121212u, 3f);
-                if (sel) dl.AddRect(a, b, 0xFF8FC7F0u, 3f);
+                bool sel = (pageStart + i) == cur.Sel;
+                var a = new System.Numerics.Vector2(p.X - 2, p.Y - 1);
+                var b = new System.Numerics.Vector2(p.X + Math.Max(sz.X, w) + 4, p.Y + lh + 2);
+                if (sel) dl.AddRectFilled(a, b, 0xFF2A5C8Fu, 3f);
                 dl.AddText(p, 0xFFEAF2FFu, item);
                 p.Y += lh + 4;
             }
@@ -1558,6 +1587,25 @@ namespace PlantSwap.App
 
         [System.Runtime.InteropServices.DllImport("imm32.dll")]
         static extern uint ImmGetCandidateListCountW(IntPtr hIMC, out uint count);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern bool ImmNotifyIME(IntPtr hIMC, int action, int index, int value);
+
+        internal const int NI_COMPOSITIONSTR = 0x0015;
+        internal const int CPS_CANCEL = 0x0000;
+
+        /// <summary>结束当前组合（丢焦点时调用，否则组合会一直挂着，再点回来就卡住）。</summary>
+        internal static void CancelComposition(IntPtr hwnd)
+        {
+            try
+            {
+                var imc = ImmGetContext(hwnd);
+                if (imc == IntPtr.Zero) return;
+                try { ImmNotifyIME(imc, NI_COMPOSITIONSTR, CPS_CANCEL, 0); }
+                finally { ImmReleaseContext(hwnd, imc); }
+            }
+            catch { }
+        }
 
         [System.Runtime.InteropServices.DllImport("imm32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         static extern uint ImmGetCandidateListW(IntPtr hIMC, uint dwIndex, IntPtr lpCandList, uint dwBufLen);
