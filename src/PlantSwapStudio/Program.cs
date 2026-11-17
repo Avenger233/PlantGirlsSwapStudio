@@ -633,8 +633,10 @@ namespace PlantSwap.App
                 return q.Length == 0 || d.ToLowerInvariant().Contains(q) || k.Contains(q);
             }).OrderBy(k => CnNames.DisplayName(_names, k)).ToList();
             var disp = keys.Select(k => CnNames.DisplayName(_names, k)).ToArray();
-            if (isA) { _keysA = keys; _dispA = disp; if (_selA >= 0) _selA = Math.Min(_selA, Math.Max(0, disp.Length - 1)); }
-            else { _keysB = keys; _dispB = disp; if (_selB >= 0) _selB = Math.Min(_selB, Math.Max(0, disp.Length - 1)); }
+            // 选中索引跟着「当前实际选中的 key」走：筛选把当前项滤掉时置 -1，
+            // 这样下拉标题仍然显示已选中的那株，而不是跳到列表里第一项。
+            if (isA) { _keysA = keys; _dispA = disp; _selA = string.IsNullOrEmpty(_keyA) ? -1 : keys.IndexOf(_keyA); }
+            else { _keysB = keys; _dispB = disp; _selB = string.IsNullOrEmpty(_keyB) ? -1 : keys.IndexOf(_keyB); }
         }
 
         void SelectIndex(int idx, bool isA)
@@ -975,21 +977,7 @@ namespace PlantSwap.App
                     ImGui.SameLine();
                     DrawPlantCombo("##plantB", false);
                 }
-                ImGui.SameLine();
-                ImGui.Text("搜索 A");
-                ImGui.SameLine();
-                ImGui.SetNextItemWidth(110);
-                if (ImGui.InputText("##searchA", ref _searchA, 128)) RebuildFilterSide(true);
-                Tip("只过滤左边植物 A 的下拉列表");
-                if (_mode == 0 || _mode == 1)
-                {
-                    ImGui.SameLine();
-                    ImGui.Text("搜索 B");
-                    ImGui.SameLine();
-                    ImGui.SetNextItemWidth(110);
-                    if (ImGui.InputText("##searchB", ref _searchB, 128)) RebuildFilterSide(false);
-                    Tip("只过滤右边植物 B 的下拉列表");
-                }
+
             }
 
             BuildModeBody();
@@ -1156,12 +1144,27 @@ namespace PlantSwap.App
             ImGui.SetNextItemWidth(330);
             if (ImGui.BeginCombo(id, label))
             {
+                // 筛选框就在下拉里：打开即聚焦，输入即过滤本列表
+                if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+                string q = isA ? _searchA : _searchB;
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputTextWithHint("##filter" + id, "筛选：中文名或英文 key", ref q, 64))
+                {
+                    if (isA) _searchA = q; else _searchB = q;
+                    RebuildFilterSide(isA);
+                    disp = isA ? _dispA : _dispB;
+                    sel = isA ? _selA : _selB;
+                }
+
+                ImGui.BeginChild("##list" + id, new System.Numerics.Vector2(0, 320), false);
                 for (int i = 0; i < disp.Length; i++)
                 {
                     bool on = i == sel;
                     if (ImGui.Selectable(disp[i] + "##" + id + i, on)) SelectIndex(i, isA);
                     if (on) ImGui.SetItemDefaultFocus();
                 }
+                if (disp.Length == 0) ImGui.TextDisabled("（没有匹配项）");
+                ImGui.EndChild();
                 ImGui.EndCombo();
             }
         }
@@ -1262,15 +1265,31 @@ namespace PlantSwap.App
             ImGui.SameLine();
             ImGui.Text("选择（" + _watchDisp.Length + "）");
             ImGui.SameLine();
-            ImGui.SetNextItemWidth(230);
-            var wdisp = _watchDisp.Length > 0 ? _watchDisp : new[] { "（没有条目）" };
-            if (ImGui.Combo("##watchsel", ref _watchSel, wdisp, wdisp.Length)) SelectWatch(_watchSel);
+            ImGui.SetNextItemWidth(260);
+            string wlabel = string.IsNullOrEmpty(_watchKey) ? "（未选择）"
+                          : (IsZombieKey(_watchKey) ? ZombieLabel(_watchKey) : CnNames.DisplayName(_names, _watchKey));
+            if (ImGui.BeginCombo("##watchsel", wlabel))
+            {
+                if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
+                string wq = _watchSearch;
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputTextWithHint("##wfilter", "筛选：中文名或英文 key", ref wq, 64))
+                {
+                    _watchSearch = wq;
+                    RebuildWatchList();
+                }
+                ImGui.BeginChild("##wlist", new System.Numerics.Vector2(0, 320), false);
+                for (int i = 0; i < _watchDisp.Length; i++)
+                {
+                    bool on = i == _watchSel;
+                    if (ImGui.Selectable(_watchDisp[i] + "##w" + i, on)) SelectWatch(i);
+                    if (on) ImGui.SetItemDefaultFocus();
+                }
+                if (_watchDisp.Length == 0) ImGui.TextDisabled("（没有匹配项）");
+                ImGui.EndChild();
+                ImGui.EndCombo();
+            }
             Tip("观赏模式只预览，不改任何文件");
-            ImGui.SameLine();
-            ImGui.Text("搜索");
-            ImGui.SameLine();
-            ImGui.SetNextItemWidth(110);
-            if (ImGui.InputText("##wsearch", ref _watchSearch, 128)) RebuildWatchList();
 
             if (_watchZombie) { BuildZombieControls(); return; }
 

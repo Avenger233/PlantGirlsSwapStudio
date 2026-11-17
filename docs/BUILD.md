@@ -79,6 +79,9 @@ dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj `
 单文件发布时这两个原生 DLL 必须一起打进去，否则双击闪退。
 `native/SDL2.dll` 和 `native/soft_oal.dll` 以 EmbeddedResource 形式打包，运行时解压到临时目录。
 
+> **注意**：重复往同一个 `publish/` 目录发布会得到 9.7 MB 的**框架依赖**版（缺运行时，双击闪退）。
+> 每次发布前先 `rm -rf publish`；正确产物约 86 MB。
+
 ## 5. 部署
 
 ```powershell
