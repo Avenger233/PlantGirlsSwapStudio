@@ -14,6 +14,9 @@
   `PrepEnvironment()` 会优先加载资源里这份，其次才回退到 exe 同目录的 dll。
 - `soft_oal.dll` —— OpenAL Soft（音效，本工具其实没用到，保留以便 MonoGame 初始化）
 
+运行时会解压到 **`<游戏目录>/资源修改器/native/`**（和备份、Mod、ini 放一起）；
+猜不到游戏目录时才退回 `%APPDATA%\PvZPlantSwap\native`。游戏目录里原本的 `SDL2.dll` 不会被覆盖。
+
 ## 1. 准备 Spine 运行时
 
 游戏里的骨骼是 **Spine 4.2** 导出的（资源版本 4.2.43），必须用 4.2 的 C# 运行时。

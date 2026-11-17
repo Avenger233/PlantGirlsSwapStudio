@@ -1002,6 +1002,7 @@ namespace PlantSwap.App
         // 候选窗缓存：QQ拼音这类 TSF 输入法偶尔会闪一帧空数据，直接缓存住就不闪了
         Program.ImeState2 _imeCache;
         double _imeCacheAt, _imeReadAt;
+        string _imeLoggedComp;
 
         void DrawImeOverlay()
         {
@@ -1025,6 +1026,11 @@ namespace PlantSwap.App
             {
                 _imeReadAt = gameTimeSeconds;
                 var fresh = hwnd != IntPtr.Zero ? Program.ReadIme(hwnd) : null;
+                if (fresh != null && fresh.Active && fresh.Comp != _imeLoggedComp)
+                {
+                    _imeLoggedComp = fresh.Comp;
+                    Program.LogIme("cand " + Program.ImeRaw + " comp='" + fresh.Comp + "' cands=" + fresh.Cand.Count + " page=" + fresh.PageStart + "/" + fresh.PageSize + " sel=" + fresh.Sel);
+                }
                 if (fresh != null && fresh.Active)
                 {
                     var prev = _imeCache;
@@ -1655,7 +1661,11 @@ namespace PlantSwap.App
                 var buf = System.Runtime.InteropServices.Marshal.AllocHGlobal(4096);
                 try
                 {
+                    var need = ImmGetCandidateListW(imc, 0, IntPtr.Zero, 0);   // 先问需要多大
                     var cnt = ImmGetCandidateListW(imc, 0, buf, 4096);
+                    var raw = new int[6];
+                    for (int k = 0; k < 6; k++) raw[k] = System.Runtime.InteropServices.Marshal.ReadInt32(buf, k * 4);
+                    ImeRaw = "need=" + need + " ret=" + cnt + " raw=[" + string.Join(",", raw) + "]";
                     if (cnt > 0)
                     {
                         // CANDIDATELIST 布局：dwSize(0) dwCount(4) dwSelection(8) dwPageStart(12) dwPageSize(16) dwOffset[](20)
@@ -1680,6 +1690,8 @@ namespace PlantSwap.App
         }
 
         /// <summary>读一下当前组合字符串，用于确认输入法到底有没有在组词。</summary>
+        internal static string ImeRaw = "";
+
         internal static string CompositionInfo(IntPtr hwnd)
         {
             try
@@ -1830,7 +1842,16 @@ namespace PlantSwap.App
         static void PrepEnvironment()
         {
             string dataDir = PvZPlantSwap.Core.PlantSwap.DataDir;
-            string nativeDir = System.IO.Path.Combine(dataDir, "native");
+            // 原生 dll 放到「游戏目录 / 资源修改器 / native」，跟备份、Mod、ini 放一起；
+            // 猜不到游戏目录时退回 %APPDATA% 下的工具目录
+            string toolDir = dataDir;
+            try
+            {
+                var game = PvZPlantSwap.Core.PlantSwap.GuessGame();
+                if (!string.IsNullOrEmpty(game)) toolDir = System.IO.Path.Combine(game, "资源修改器");
+            }
+            catch { }
+            string nativeDir = System.IO.Path.Combine(toolDir, "native");
             System.IO.Directory.CreateDirectory(nativeDir);
             var asm = typeof(Program).Assembly;
             foreach (var name in new[] { "SDL2.dll", "soft_oal.dll" })
