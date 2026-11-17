@@ -1220,6 +1220,15 @@ namespace PlantSwap.App
             ImGui.BeginChild("##logscroll", new System.Numerics.Vector2(0, 0), true);
             ImGui.InputTextMultiline("##logtext", ref _logText, 262144, new System.Numerics.Vector2(-1, -1),
                 ImGuiInputTextFlags.ReadOnly);
+            if (ImGui.BeginPopupContextItem("##logctx"))
+            {
+                if (ImGui.MenuItem("复制全部")) ImGui.SetClipboardText(string.Join(Environment.NewLine, _log));
+                if (ImGui.MenuItem("复制最后一行") && _log.Count > 0)
+                    ImGui.SetClipboardText(_log[_log.Count - 1]);
+                ImGui.Separator();
+                ImGui.TextDisabled("选中文字后按 Ctrl+C 也可复制");
+                ImGui.EndPopup();
+            }
             if (_logScrollBottom) { ImGui.SetScrollHereY(1f); _logScrollBottom = false; }
             ImGui.EndChild();
             ImGui.End();
@@ -1564,6 +1573,11 @@ namespace PlantSwap.App
                 ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.43f, 0.49f, 0.56f, 1f));
                 ImGui.InputText("##sysinfo", ref sysEdit, 512,
                     ImGuiInputTextFlags.ReadOnly | ImGuiInputTextFlags.NoHorizontalScroll);
+                if (ImGui.BeginPopupContextItem("##sysctx"))
+                {
+                    if (ImGui.MenuItem("复制这一行")) ImGui.SetClipboardText(sys);
+                    ImGui.EndPopup();
+                }
                 ImGui.PopStyleColor();
             }
             ImGui.End();
