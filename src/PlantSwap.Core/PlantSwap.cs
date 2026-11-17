@@ -249,7 +249,15 @@ public static class PlantSwap
     /// 求 A、B 两个植物在各子目录下的配对。对应 Python resolve()。
     /// spanim 额外要求 (rem, 扩展名) 都相同。
     /// </summary>
-    public static ResolveResult Resolve(AssetTable table, IReadOnlyList<string> folders, string a, string b)
+    /// <param name="table">已扫描的资源表。</param>
+    /// <param name="folders">参与处理的子目录。</param>
+    /// <param name="a">植物 A 的 key。</param>
+    /// <param name="b">植物 B 的 key。</param>
+    /// <param name="force">
+    /// true = 强制配对：名称/后缀对不上的文件，在同一扩展名内按文件名顺序强行配成一对。
+    /// 不会新增或删除 B 的文件，只是把原本「跳过」的那些也配上。
+    /// </param>
+    public static ResolveResult Resolve(AssetTable table, IReadOnlyList<string> folders, string a, string b, bool force = false)
     {
         var ka = Norm(a);
         var kb = Norm(b);
@@ -268,6 +276,9 @@ public static class PlantSwap
                 continue;
             }
 
+            int before = pairs.Count;
+            var folderMissing = new List<MissingEntry>();
+
             if (folder == "spanim")
             {
                 var idx = new Dictionary<(string Rem, string Ext), string>();
@@ -280,16 +291,51 @@ public static class PlantSwap
                     if (idx.TryGetValue(key, out var pb))
                         pairs.Add(new AssetPair { A = e.Path, B = pb, Folder = folder });
                     else
-                        missing.Add(new MissingEntry { Folder = folder, Name = Path.GetFileName(e.Path) });
+                        folderMissing.Add(new MissingEntry { Folder = folder, Name = Path.GetFileName(e.Path) });
                 }
-                continue;
+            }
+            else
+            {
+                var (fp, fm) = PairFamily(fa, fb);
+                foreach (var p in fp)
+                    pairs.Add(new AssetPair { A = p.A, B = p.B, Folder = folder });
+                foreach (var m in fm)
+                    folderMissing.Add(new MissingEntry { Folder = folder, Name = Path.GetFileName(m) });
             }
 
-            var (fp, fm) = PairFamily(fa, fb);
-            foreach (var p in fp)
-                pairs.Add(new AssetPair { A = p.A, B = p.B, Folder = folder });
-            foreach (var m in fm)
-                missing.Add(new MissingEntry { Folder = folder, Name = Path.GetFileName(m) });
+            if (force)
+            {
+                var usedA = new HashSet<string>(StringComparer.Ordinal);
+                var usedB = new HashSet<string>(StringComparer.Ordinal);
+                for (var i = before; i < pairs.Count; i++) { usedA.Add(pairs[i].A); usedB.Add(pairs[i].B); }
+
+                var leftA = fa.Where(e => !usedA.Contains(e.Path)).Select(e => e.Path)
+                              .OrderBy(p => p, StringComparer.Ordinal).ToList();
+                var leftB = fb.Where(e => !usedB.Contains(e.Path)).Select(e => e.Path)
+                              .OrderBy(p => p, StringComparer.Ordinal).ToList();
+
+                var exts = leftA.Select(Path.GetExtension)
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+                foreach (var ext in exts)
+                {
+                    var la = leftA.Where(p => string.Equals(Path.GetExtension(p), ext, StringComparison.OrdinalIgnoreCase)).ToList();
+                    var lb = leftB.Where(p => string.Equals(Path.GetExtension(p), ext, StringComparison.OrdinalIgnoreCase)).ToList();
+                    for (var i = 0; i < la.Count && i < lb.Count; i++)
+                    {
+                        pairs.Add(new AssetPair { A = la[i], B = lb[i], Folder = folder });
+                        usedA.Add(la[i]);
+                        usedB.Add(lb[i]);
+                    }
+                }
+
+                folderMissing.Clear();
+                foreach (var p in leftA)
+                    if (!usedA.Contains(p))
+                        folderMissing.Add(new MissingEntry { Folder = folder, Name = Path.GetFileName(p) });
+            }
+
+            missing.AddRange(folderMissing);
         }
 
         return new ResolveResult(pairs, missing);

@@ -36,6 +36,7 @@ internal static class Program
         var selftest = false;
         var doSwap = false;
         var doPairs = false;
+        var force = false;
         var listPlants = false;
         string? poseFile = null, poseTrack = null;
         var poseTime = -1f;
@@ -56,6 +57,7 @@ internal static class Program
                 case "--swap":
                     a = Take(args, ref i); b = Take(args, ref i); doSwap = true; break;
                 case "--plants": listPlants = true; break;
+                case "--force": force = true; break;
                 case "--pose": poseFile = Take(args, ref i); break;
                 case "--track": poseTrack = Take(args, ref i); break;
                 case "--time":
@@ -100,7 +102,7 @@ internal static class Program
                 return 2;
             }
             var table = PlantSwap.Scan(content);
-            var res = PlantSwap.Resolve(table, PlantSwap.Folders, a!, b!);
+            var res = PlantSwap.Resolve(table, PlantSwap.Folders, a!, b!, force);
             Console.WriteLine("content: " + content);
             Console.WriteLine("pairs " + a + " <-> " + b + ": " + res.Pairs.Count);
             foreach (var p in res.Pairs) Console.WriteLine("  " + p);
@@ -166,6 +168,7 @@ internal static class Program
         Console.WriteLine("  --game DIR     游戏根目录（不填则自动从 exe / 当前目录向上找 Content）");
         Console.WriteLine("  --content DIR  直接指定 Content 目录（优先级高于 --game）");
         Console.WriteLine("  --mode MODE    swap=双向互换（默认），replace=用 B 覆盖 A");
+        Console.WriteLine("  --force        强制配对：名称对不上的文件按扩展名顺序硬配（配合 --pairs/--swap 使用）");
     }
 
     private static int PoseDump(string path, string? layerName, float time, int frames, bool listLayers)

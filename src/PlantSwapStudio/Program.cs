@@ -23,9 +23,11 @@ namespace PlantSwap.App
         string _content;
         Dictionary<string, string> _names = new();
         BuildListsResult _lists;
-        string[] _disp = Array.Empty<string>();
-        Dictionary<string, string> _disp2key = new();
-        List<string> _filteredKeys = new();
+        // 植物 A / B 各自一份筛选结果，搜索互不影响
+        string[] _dispA = Array.Empty<string>();
+        string[] _dispB = Array.Empty<string>();
+        List<string> _keysA = new();
+        List<string> _keysB = new();
 
         SpinePreview _pvA, _pvB, _pvMod;
         Texture2D _sheetA, _sheetB;
@@ -40,7 +42,9 @@ namespace PlantSwap.App
         bool _onlyPlants = true;
         bool _paused;
         bool _portraitMode = true;
-        string _search = "";
+        string _searchA = "";     // 植物 A 的搜索词
+        string _searchB = "";     // 植物 B 的搜索词（替换/互换模式独立）
+        string _watchSearch = ""; // 观赏模式的搜索词
         readonly Dictionary<string, bool> _folders = new()
         {
             ["spanim"] = true, ["reanim"] = true, ["particles"] = true,
@@ -433,8 +437,8 @@ namespace PlantSwap.App
             _modeWatchKey[2] = _watchKey;
             for (int i = 0; i < 4; i++)
             {
-                _modeSelA[i] = string.IsNullOrEmpty(_modeKeyA[i]) ? -1 : _filteredKeys.IndexOf(_modeKeyA[i]);
-                _modeSelB[i] = string.IsNullOrEmpty(_modeKeyB[i]) ? -1 : _filteredKeys.IndexOf(_modeKeyB[i]);
+                _modeSelA[i] = string.IsNullOrEmpty(_modeKeyA[i]) ? -1 : _keysA.IndexOf(_modeKeyA[i]);
+                _modeSelB[i] = string.IsNullOrEmpty(_modeKeyB[i]) ? -1 : _keysB.IndexOf(_modeKeyB[i]);
             }
             // 老版本 ini 只有 keyA/keyB：算到 0 号模式（替换）头上
             if (_savedMode > 0 && _savedMode <= 3)
@@ -505,7 +509,7 @@ namespace PlantSwap.App
         void SelectKey(string key, bool isA)
         {
             if (string.IsNullOrEmpty(key)) return;
-            int idx = _filteredKeys.IndexOf(key);
+            int idx = (isA ? _keysA : _keysB).IndexOf(key);
             if (idx >= 0) { SelectIndex(idx, isA); return; }
             if (isA)
             {
@@ -535,8 +539,8 @@ namespace PlantSwap.App
 
         int FirstWithSpine(int from)
         {
-            for (int i = Math.Max(0, from); i < _filteredKeys.Count; i++)
-                if (HasSpine(_filteredKeys[i])) return i;
+            for (int i = Math.Max(0, from); i < _keysA.Count; i++)
+                if (HasSpine(_keysA[i])) return i;
             return -1;
         }
 
@@ -605,34 +609,39 @@ namespace PlantSwap.App
             }
         }
 
+        /// <summary>A、B 各用各的搜索词和结果，互不影响。</summary>
         void RebuildFilter()
         {
-            // 没找到游戏目录时 _lists 还是 null：清空列表即可，不要炸
+            RebuildFilterSide(true);
+            RebuildFilterSide(false);
+        }
+
+        void RebuildFilterSide(bool isA)
+        {
             if (_lists == null)
             {
-                _filteredKeys = new List<string>();
-                _disp = Array.Empty<string>();
-                _disp2key.Clear();
+                if (isA) { _keysA = new List<string>(); _dispA = Array.Empty<string>(); }
+                else { _keysB = new List<string>(); _dispB = Array.Empty<string>(); }
                 return;
             }
             var src = (_onlyPlants ? _lists.Plants : _lists.Keys)
                 .Where(k => k.Length >= 3 && k.Any(char.IsLetter));
-            string q = _search.Trim().ToLowerInvariant();
-            _disp2key.Clear();
-            _filteredKeys = src.Where(k =>
+            string q = (isA ? _searchA : _searchB).Trim().ToLowerInvariant();
+            var keys = src.Where(k =>
             {
                 var d = CnNames.DisplayName(_names, k);
                 return q.Length == 0 || d.ToLowerInvariant().Contains(q) || k.Contains(q);
             }).OrderBy(k => CnNames.DisplayName(_names, k)).ToList();
-            _disp = _filteredKeys.Select(k => CnNames.DisplayName(_names, k)).ToArray();
-            if (_selA >= 0) _selA = Math.Min(_selA, Math.Max(0, _disp.Length - 1));
-            if (_selB >= 0) _selB = Math.Min(_selB, Math.Max(0, _disp.Length - 1));
+            var disp = keys.Select(k => CnNames.DisplayName(_names, k)).ToArray();
+            if (isA) { _keysA = keys; _dispA = disp; if (_selA >= 0) _selA = Math.Min(_selA, Math.Max(0, disp.Length - 1)); }
+            else { _keysB = keys; _dispB = disp; if (_selB >= 0) _selB = Math.Min(_selB, Math.Max(0, disp.Length - 1)); }
         }
 
         void SelectIndex(int idx, bool isA)
         {
-            if (idx < 0 || idx >= _filteredKeys.Count) return;
-            var key = _filteredKeys[idx];
+            var list = isA ? _keysA : _keysB;
+            if (idx < 0 || idx >= list.Count) return;
+            var key = list[idx];
             if (isA) { _selA = idx; if (_keyA != key) { _keyA = key; _pvA.Load(key); SelectReanimFor(key); _sheetA = LoadPainting(key); if (_mode == 2) RefreshAnimNames(); } }
             else { _selB = idx; if (_keyB != key) { _keyB = key; _pvB.Load(key); _sheetB = LoadPainting(key); } }
         }
@@ -702,12 +711,13 @@ namespace PlantSwap.App
 
         List<string> CurrentFolders() => _folders.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
 
-        void DoResolve(bool apply, string mode)
+        void DoResolve(bool apply, string mode, bool force = false)
         {
             if (_lists == null) { Say("还没有载入游戏资源，先把顶栏的游戏目录填对"); return; }
             if (string.IsNullOrEmpty(_keyA) || string.IsNullOrEmpty(_keyB) || _keyA == _keyB) { Say("请选择两个不同的植物"); return; }
-            var res = CoreSwap.Resolve(_lists.Table, CurrentFolders(), _keyA, _keyB);
-            Say($"{CnNames.DisplayName(_names, _keyA)} <-> {CnNames.DisplayName(_names, _keyB)}：{res.Count} 对");
+            var res = CoreSwap.Resolve(_lists.Table, CurrentFolders(), _keyA, _keyB, force);
+            var tag = force ? "（强制配对）" : "";
+            Say($"{CnNames.DisplayName(_names, _keyA)} <-> {CnNames.DisplayName(_names, _keyB)}：{res.Count} 对{tag}");
             foreach (var p in res.Pairs) Say($"  [{p.Folder}] {p.NameA} <-> {p.NameB}");
             foreach (var m in res.Missing) Say($"  跳过 {m.Folder}/{m.Name}");
             if (!apply) return;
@@ -898,8 +908,28 @@ namespace PlantSwap.App
 
             _imgui.BeforeLayout(gameTime);
             BuildUi(w, h, top, bottom);
+            UpdateImeRect();
             _imgui.AfterLayout();
             base.Draw(gameTime);
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct SdlRect { public int X, Y, W, H; }
+
+        [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        static extern void SDL_SetTextInputRect(ref SdlRect rect);
+
+        /// <summary>把输入法候选窗挪到当前输入框附近，否则它会停在窗口左上角。</summary>
+        void UpdateImeRect()
+        {
+            try
+            {
+                if (!ImGui.GetIO().WantTextInput) return;
+                var m = ImGui.GetIO().MousePos;
+                var r = new SdlRect { X = (int)m.X, Y = (int)m.Y, W = 1, H = 22 };
+                SDL_SetTextInputRect(ref r);
+            }
+            catch { }
         }
 
         void DrawSheet(Texture2D tex, Rectangle r)
@@ -946,10 +976,20 @@ namespace PlantSwap.App
                     DrawPlantCombo("##plantB", false);
                 }
                 ImGui.SameLine();
-                ImGui.Text("搜索");
+                ImGui.Text("搜索 A");
                 ImGui.SameLine();
-                ImGui.SetNextItemWidth(150);
-                if (ImGui.InputText("##search", ref _search, 128)) RebuildFilter();
+                ImGui.SetNextItemWidth(110);
+                if (ImGui.InputText("##searchA", ref _searchA, 128)) RebuildFilterSide(true);
+                Tip("只过滤左边植物 A 的下拉列表");
+                if (_mode == 0 || _mode == 1)
+                {
+                    ImGui.SameLine();
+                    ImGui.Text("搜索 B");
+                    ImGui.SameLine();
+                    ImGui.SetNextItemWidth(110);
+                    if (ImGui.InputText("##searchB", ref _searchB, 128)) RebuildFilterSide(false);
+                    Tip("只过滤右边植物 B 的下拉列表");
+                }
             }
 
             BuildModeBody();
@@ -1108,17 +1148,18 @@ namespace PlantSwap.App
         {
             int sel = isA ? _selA : _selB;
             var key = isA ? _keyA : _keyB;
+            var disp = isA ? _dispA : _dispB;
             string label;
-            if (sel >= 0 && sel < _disp.Length) label = _disp[sel];
+            if (sel >= 0 && sel < disp.Length) label = disp[sel];
             else if (!string.IsNullOrEmpty(key)) label = CnNames.DisplayName(_names, key);
             else label = "（未选择）";
-            ImGui.SetNextItemWidth(400);
+            ImGui.SetNextItemWidth(330);
             if (ImGui.BeginCombo(id, label))
             {
-                for (int i = 0; i < _disp.Length; i++)
+                for (int i = 0; i < disp.Length; i++)
                 {
                     bool on = i == sel;
-                    if (ImGui.Selectable(_disp[i] + "##" + id + i, on)) SelectIndex(i, isA);
+                    if (ImGui.Selectable(disp[i] + "##" + id + i, on)) SelectIndex(i, isA);
                     if (on) ImGui.SetItemDefaultFocus();
                 }
                 ImGui.EndCombo();
@@ -1179,6 +1220,10 @@ namespace PlantSwap.App
             ImGui.SameLine();
             if (ImGui.Button(_ovDir == 0 ? "用 A 替换 B" : "用 B 替换 A")) DoResolve(true, _ovDir == 0 ? "aOverB" : "bOverA");
             Tip("单向覆盖，没有反向撤销；想恢复请点「还原原始」");
+            ImGui.SameLine();
+            if (ImGui.Button(_ovDir == 0 ? "强制用 A 替换 B" : "强制用 B 替换 A")) DoResolve(true, _ovDir == 0 ? "aOverB" : "bOverA", true);
+            Tip("名称/后缀对不上的文件也按扩展名顺序强行配上去：适合两边部件数量不一样的植物。" +
+                "只会覆盖 B 自己的文件，不会新增文件。");
         }
 
         void BuildSwapRow()
@@ -1225,7 +1270,7 @@ namespace PlantSwap.App
             ImGui.Text("搜索");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(110);
-            if (ImGui.InputText("##search", ref _search, 128)) RebuildWatchList();
+            if (ImGui.InputText("##wsearch", ref _watchSearch, 128)) RebuildWatchList();
 
             if (_watchZombie) { BuildZombieControls(); return; }
 
@@ -1324,9 +1369,16 @@ namespace PlantSwap.App
 
     public static class Program
     {
+        // SDL2 在 Windows 上默认把输入法候选窗藏起来（WM_IME_SETCONTEXT 里去掉 ISC_SHOWUICOMPOSITIONWINDOW），
+        // 必须提前打开这个 hint，中文输入法才能在搜索框里正常弹出候选窗。
+        [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        static extern bool SDL_SetHint([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string name,
+                                       [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string value);
+
         [STAThread]
         static void Main()
         {
+            try { SDL_SetHint("SDL_IME_SHOW_UI", "1"); } catch { }   // 必须在建窗口前
             PrepEnvironment();
             try
             {

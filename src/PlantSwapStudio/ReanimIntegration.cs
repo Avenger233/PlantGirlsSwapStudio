@@ -227,7 +227,7 @@ namespace PlantSwap.App
         void RebuildWatchList()
         {
             _watchKeys.Clear();
-            var q = (_search ?? "").Trim().ToLowerInvariant();
+            var q = (_watchSearch ?? "").Trim().ToLowerInvariant();
             var disp = new List<string>();
             void Add(string k)
             {
@@ -386,7 +386,7 @@ namespace PlantSwap.App
                 {
                     _mode = 2;
                     OnModeChanged();
-                    int pi = _filteredKeys.FindIndex(k => string.Equals(k, plant, StringComparison.OrdinalIgnoreCase));
+                    int pi = _keysA.FindIndex(k => string.Equals(k, plant, StringComparison.OrdinalIgnoreCase));
                     if (pi >= 0)
                     {
                         SelectIndex(pi, true);

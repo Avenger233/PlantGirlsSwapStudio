@@ -36,7 +36,7 @@ namespace PlantSwap.App
             _pvA.Load(plant);
             SelectReanimFor(plant);
             _sheetA = LoadPainting(plant);
-            int idx = _filteredKeys.IndexOf(plant);
+            int idx = _keysA.IndexOf(plant);
             if (idx >= 0) _selA = idx;
             RefreshAnimNames();
         }
