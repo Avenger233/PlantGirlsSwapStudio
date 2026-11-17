@@ -726,6 +726,11 @@ namespace PlantSwap.App
             foreach (var m in res.Missing) Say($"  跳过 {m.Folder}/{m.Name}");
             if (!apply) return;
             if (res.Count == 0) { Say("没有可操作的文件对"); return; }
+            if (string.Equals(Environment.GetEnvironmentVariable("PLANTSWAP_DRY"), "1", StringComparison.Ordinal))
+            {
+                Say("（PLANTSWAP_DRY=1，只列配对，未实际写入）");
+                return;
+            }
             try
             {
                 string label = mode == "aOverB" ? "A 覆盖 B" : mode == "bOverA" ? "B 覆盖 A" : "互换";
@@ -1461,7 +1466,7 @@ namespace PlantSwap.App
             Tip("单向覆盖，没有反向撤销；想恢复请点「还原原始」");
             ImGui.SameLine();
             if (ImGui.Button(_ovDir == 0 ? "强制用 A 替换 B" : "强制用 B 替换 A")) DoResolve(true, _ovDir == 0 ? "aOverB" : "bOverA", true);
-            Tip("名称/后缀对不上的文件也按扩展名顺序强行配上去：适合两边部件数量不一样的植物。" +
+            Tip("名称/后缀对不上的文件，先按名字相似度撮合（同尾号优先，其次公共前缀），再配不上的就跳过。" +
                 "只会覆盖 B 自己的文件，不会新增文件。");
         }
 

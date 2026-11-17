@@ -335,11 +335,24 @@ public static class PlantSwap
                 {
                     var la = leftA.Where(p => string.Equals(Path.GetExtension(p), ext, StringComparison.OrdinalIgnoreCase)).ToList();
                     var lb = leftB.Where(p => string.Equals(Path.GetExtension(p), ext, StringComparison.OrdinalIgnoreCase)).ToList();
-                    for (var i = 0; i < la.Count && i < lb.Count; i++)
+
+                    // 不再按文件名顺序硬配：先按「名字相似度」撮合（同尾号优先，其次最长公共前缀），
+                    // 这样 painting_marigold_0 会优先配 painting_zombie_0，而不是随便抓一个文件。
+                    foreach (var pa in la)
                     {
-                        pairs.Add(new AssetPair { A = la[i], B = lb[i], Folder = folder });
-                        usedA.Add(la[i]);
-                        usedB.Add(lb[i]);
+                        string? bestPath = null;
+                        int bestScore = int.MinValue;
+                        foreach (var pb in lb)
+                        {
+                            if (usedB.Contains(pb)) continue;
+                            int sc = PairScore(pa, pb);
+                            if (sc > bestScore) { bestScore = sc; bestPath = pb; }
+                        }
+                        // 名字压根不像（比如 painting_marigold_0 vs zombienote1）就别硬配，留成「跳过」更诚实
+                        if (bestPath is null || bestScore < 4) break;
+                        pairs.Add(new AssetPair { A = pa, B = bestPath, Folder = folder });
+                        usedA.Add(pa);
+                        usedB.Add(bestPath);
                     }
                 }
 
@@ -353,6 +366,29 @@ public static class PlantSwap
         }
 
         return new ResolveResult(pairs, missing);
+    }
+
+    /// <summary>强制配对时的相似度：尾号相同最优先，其次看文件名公共前缀长度。</summary>
+    static int PairScore(string a, string b)
+    {
+        var na = Path.GetFileNameWithoutExtension(a);
+        var nb = Path.GetFileNameWithoutExtension(b);
+        int n = Math.Min(na.Length, nb.Length), i = 0;
+        while (i < n && char.ToLowerInvariant(na[i]) == char.ToLowerInvariant(nb[i])) i++;
+        int score = i;
+
+        int ta = TrailingNumber(na), tb = TrailingNumber(nb);
+        if (ta >= 0 && tb >= 0)
+            score += ta == tb ? 1000 : -Math.Min(50, Math.Abs(ta - tb));
+        return score;
+    }
+
+    static int TrailingNumber(string stem)
+    {
+        int i = stem.Length;
+        while (i > 0 && char.IsDigit(stem[i - 1])) i--;
+        if (i == stem.Length) return -1;
+        return int.TryParse(stem.AsSpan(i), out var v) ? v : -1;
     }
 
     /// <summary>定位 Content 目录（优先 &lt;game&gt;/Content，其次 &lt;game&gt; 本身）。对应 Python find_content()。</summary>
