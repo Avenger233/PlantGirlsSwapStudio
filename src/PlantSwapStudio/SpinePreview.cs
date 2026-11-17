@@ -28,9 +28,6 @@ namespace PlantSwap.App
         public Vector2 Pan { get; set; }
         public bool Paused { get; set; }
         public bool Ready => _skel != null;
-
-        /// <summary>该骨架只有特效类动作（没有 idle 之类），默认按定格显示。</summary>
-        public bool OnlyEffectAnimations => _plainMeasure;
         public float Time { get; private set; }
 
         public IReadOnlyList<string> Animations
@@ -53,40 +50,15 @@ namespace PlantSwap.App
             if (an == null) return;
             _state.SetAnimation(0, name, loop);
             _animDuration = Math.Max(an.Duration, 0.05f);
-            // 构图仍按 setup pose 量（选中的动作可能带位移，按它量会把人缩成一小点）
-            _measured = false;
             _fit = 0;
         }
 
         /// <summary>回到载入时的默认动作（idle / enter / 第一个），用于离开观赏模式。</summary>
-        /// <summary>
-        /// 默认动作：优先 idle 一类；没有的话在剩下的里挑时长最长的，
-        /// 跳过 special / fx / effect 这些特效动作（萝丝就只有 special，直接被选中就成了一坨光）。
-        /// </summary>
-        Spine.Animation PickDefaultAnimation()
-        {
-            if (_data == null) return null;
-            foreach (var n in new[] { "idle", "anim_idle", "stand", "standby", "wait", "enter", "default", "show" })
-            {
-                var a = _data.FindAnimation(n);
-                if (a != null) return a;
-            }
-            Spine.Animation best = null;
-            foreach (var a in _data.Animations)
-            {
-                var nm = (a.Name ?? "").ToLowerInvariant();
-                if (nm.Contains("special") || nm.Contains("fx") || nm.Contains("effect")
-                    || nm.Contains("hit") || nm.Contains("die") || nm.Contains("attack")) continue;
-                if (best == null || a.Duration > best.Duration) best = a;
-            }
-            return best;   // 全是特效动作时返回 null：改用 setup pose（萝丝就只有 special，播起来是一坨光）
-        }
-
         public void ResetDefaultAnimation()
         {
             if (_data == null || _state == null) return;
-            var anim = PickDefaultAnimation();
-            if (anim == null && _data.Animations.Count > 0) { anim = _data.Animations.Items[0]; }
+            var anim = _data.FindAnimation("idle") ?? _data.FindAnimation("enter")
+                       ?? (_data.Animations.Count > 0 ? _data.Animations.Items[0] : null);
             if (anim == null) return;
             _state.SetAnimation(0, anim.Name, true);
             _animDuration = Math.Max(anim.Duration, 0.05f);
@@ -146,14 +118,8 @@ namespace PlantSwap.App
                 using (var fs = File.OpenRead(skelPath)) _data = bin.ReadSkeletonData(fs);
                 _skel = new Skeleton(_data);
                 _state = new AnimationState(new AnimationStateData(_data));
-                var anim = PickDefaultAnimation();
-                if (anim == null && _data.Animations.Count > 0)
-                {
-                    // 只有特效类动作（萝丝就是 special）：照样设上，点「播放」能看到动作；
-                    // 构图仍按 setup pose 量，避免被动作位移带偏
-                    anim = _data.Animations.Items[0];
-                    _plainMeasure = true;
-                }
+                var anim = _data.FindAnimation("idle") ?? _data.FindAnimation("enter")
+                           ?? (_data.Animations.Count > 0 ? _data.Animations.Items[0] : null);
                 if (anim != null) { _state.SetAnimation(0, anim.Name, true); _animDuration = Math.Max(anim.Duration, 0.05f); }
 
                 _fit = 0f; _fitW = _fitH = 0;
@@ -166,22 +132,35 @@ namespace PlantSwap.App
             }
         }
 
+        /// <summary>兜底测量：用 setup pose 的骨架包围盒（记得先把缩放还原成 1，否则会量小）。</summary>
+        void MeasureBoundsFallback()
+        {
+            try
+            {
+                _skel.SetToSetupPose();
+                _skel.ScaleX = _skel.ScaleY = 1f;
+                _skel.X = 0f; _skel.Y = 0f;
+                _skel.UpdateWorldTransform(Skeleton.Physics.None);
+                float bx, by, bw, bh; float[] vb = null;
+                _skel.GetBounds(out bx, out by, out bw, out bh, ref vb);
+                _measUw = Math.Max(Math.Clamp(bw, 8f, 4000f), 8f);
+                _measUh = Math.Max(Math.Clamp(bh, 8f, 4000f), 8f);
+                _measCx = bx + bw / 2f;
+                _measCy = by + bh / 2f;
+            }
+            catch { _measUw = _measUh = 1f; _measCx = _measCy = 0f; }
+        }
+
         float _measUw = 1f, _measUh = 1f, _measCx, _measCy;
         bool _measured;
         int _measTries;
         float _measScale;
-
-        /// <summary>为 true 时尺寸测量忽略动画（只有特效动作的 skel 用，避免特效把包围盒撑爆）。</summary>
-        bool _plainMeasure;
 
         void MeasureFallback()
         {
             try
             {
                 _skel.SetToSetupPose();
-                // 测量循环里把 ScaleX/Y 改小了，GetBounds 会跟着缩，必须先还原成 1
-                _skel.ScaleX = _skel.ScaleY = 1f;
-                _skel.X = 0f; _skel.Y = 0f;
                 _skel.UpdateWorldTransform(Skeleton.Physics.None);
                 float bx, by, bw, bh; float[] vb = null;
                 _skel.GetBounds(out bx, out by, out bw, out bh, ref vb);
@@ -198,97 +177,14 @@ namespace PlantSwap.App
             if (_skel == null) return;
             if (w <= 0 || h <= 0) { _fit = 0.4f; _cx = _cy = 0; return; }
             if (!_measured) MeasureContent();
-            // 像素测量没拿到东西（有 skel 带超大隐藏顶点），退回包围盒，总比 m=1x1 放大到出框好
-            if (_measUw < 4f || _measUh < 4f || float.IsNaN(_measUw) || float.IsNaN(_measUh))
-            {
-                MeasureFallback();
-            }
-            // 量出来的尺寸兜个底：太小说明测量失败（会被放到出框），太大说明混进了特效
-            _uw = Math.Clamp(_measUw, 8f, 4000f);
-            _uh = Math.Clamp(_measUh, 8f, 4000f);
+            // 像素测量失败（有的 skel 带超大隐藏顶点，怎么缩都顶到边缘）→ 退回骨架包围盒
+            if (_measUw < 4f || _measUh < 4f) MeasureBoundsFallback();
+            _uw = Math.Max(_measUw, 1f);
+            _uh = Math.Max(_measUh, 1f);
             _cx = _measCx; _cy = _measCy;
             // 按实际画出来的像素定比例：每只都填到面板高度的 92%，两边看起来一样大
             _fit = Math.Min(w * 0.92f / _uw, h * 0.92f / _uh);
             if (_fit <= 0 || float.IsNaN(_fit) || float.IsInfinity(_fit)) _fit = 1f;
-            // 注意：不要在这里再做「渲染一次再按实际像素重算」的二次校正，
-            // 初始 fit 偏大/偏小时会互相放大（萝丝就从 0.34 被推到 2.1），老老实实按测量值来。
-        }
-
-        /// <summary>
-        /// 用「面板尺寸的真实渲染」再校一次：先按算出来的 fit 画一遍，找实际像素范围，
-        /// 再据此修正中心点和比例。像萝丝这种包围盒里一大块是看不见的光效，只靠包围盒会缩成一坨。
-        /// </summary>
-        void RefineFit(int w, int h)
-        {
-            if (_skel == null || w <= 0 || h <= 0) return;
-            RenderTarget2D rt = null;
-            try
-            {
-                for (int pass = 0; pass < 2; pass++)
-                {
-                    float sc = _fit;
-                    rt?.Dispose();
-                    rt = new RenderTarget2D(_device, w, h, false, SurfaceFormat.Color, DepthFormat.None);
-                    _skel.SetToSetupPose();
-                    var anim = _plainMeasure ? null : _state?.GetCurrent(0)?.Animation;
-                    if (anim != null)
-                    {
-                        var probe = new AnimationState(new AnimationStateData(_data));
-                        probe.SetAnimation(0, anim.Name, true);
-                        probe.Update(_animDuration * 0.4f);
-                        probe.Apply(_skel);
-                    }
-                    _skel.ScaleX = _skel.ScaleY = sc;
-                    _skel.X = w / 2f - _cx * sc;
-                    _skel.Y = h / 2f + _cy * sc;
-                    _skel.UpdateWorldTransform(Skeleton.Physics.None);
-
-                    var gd = _device;
-                    var oldVp = gd.Viewport; var oldSc = gd.ScissorRectangle;
-                    gd.SetRenderTarget(rt);
-                    gd.Clear(Color.Transparent);
-                    gd.Viewport = new Viewport(0, 0, w, h);
-                    gd.ScissorRectangle = new Rectangle(0, 0, w, h);
-                    _effect.Projection = Matrix.CreateOrthographicOffCenter(0, w, h, 0, -1, 1);
-                    _renderer.Begin(); _renderer.Draw(_skel); _renderer.End();
-                    gd.SetRenderTarget(null);
-                    gd.Viewport = oldVp; gd.ScissorRectangle = oldSc;
-
-                    var px = new Color[w * h];
-                    rt.GetData(px);
-                    var col = new int[w]; var row = new int[h];
-                    int total = 0;
-                    for (int y = 0; y < h; y++)
-                        for (int x = 0; x < w; x++)
-                            if (px[y * w + x].A >= 24) { col[x]++; row[y]++; total++; }
-                    if (total < 40) return;
-
-                    int thr = Math.Max(3, total / 400);
-                    int x0 = 0, x1 = w - 1, y0 = 0, y1 = h - 1;
-                    while (x0 < x1 && col[x0] < thr) x0++;
-                    while (x1 > x0 && col[x1] < thr) x1--;
-                    while (y0 < y1 && row[y0] < thr) y0++;
-                    while (y1 > y0 && row[y1] < thr) y1--;
-                    if (x1 - x0 < 4 || y1 - y0 < 4) return;
-
-                    float bw = x1 - x0 + 1, bh = y1 - y0 + 1;
-                    float bcx = (x0 + x1) / 2f - w / 2f;    // 相对面板中心的偏移（像素）
-                    float bcy = (y0 + y1) / 2f - h / 2f;
-
-                    // 把内容平移到面板中心
-                    _cx += bcx / sc;
-                    _cy -= bcy / sc;
-                    // 再按内容占面板的比例修正缩放
-                    float fill = Math.Max(bw / (w * 0.92f), bh / (h * 0.92f));
-                    if (fill > 0.02f && Math.Abs(fill - 1f) > 0.05f)
-                    {
-                        _fit /= fill;
-                        if (_fit <= 0 || float.IsNaN(_fit) || float.IsInfinity(_fit)) _fit = 1f;
-                    }
-                }
-            }
-            catch { }
-            finally { rt?.Dispose(); }
         }
 
         /// <summary>
@@ -305,88 +201,61 @@ namespace PlantSwap.App
             try
             {
                 const int SZ = 512;
-                const int SAMPLES = 8;      // 一帧测不准：有的动画开头只有特效/身体还在画面外
                 float scale = 0.5f;
-                var anim = _plainMeasure ? null : _state?.GetCurrent(0)?.Animation;
+                var anim = _state?.GetCurrent(0)?.Animation;
                 for (int attempt = 0; attempt < 4; attempt++)
                 {
                     _measTries = attempt + 1; _measScale = scale;
-                    var samples = new System.Collections.Generic.List<(float uw, float uh, float cx, float cy)>();
-                    bool clippedAny = false;
-
-                    for (int s = 0; s < SAMPLES && !clippedAny; s++)
+                    rt?.Dispose();
+                    rt = new RenderTarget2D(_device, SZ, SZ, false, SurfaceFormat.Color, DepthFormat.None);
+                    _skel.SetToSetupPose();
+                    if (anim != null)
                     {
-                        _skel.SetToSetupPose();
-                        if (anim != null)
+                        var probe = new AnimationState(new AnimationStateData(_data));
+                        probe.SetAnimation(0, anim.Name, true);
+                        probe.Update(_animDuration * 0.35f);
+                        probe.Apply(_skel);
+                    }
+                    _skel.ScaleX = _skel.ScaleY = scale;
+                    _skel.X = SZ / 2f; _skel.Y = SZ / 2f;
+                    _skel.UpdateWorldTransform(Skeleton.Physics.None);
+
+                    var gd = _device;
+                    var oldVp = gd.Viewport;
+                    var oldScissor = gd.ScissorRectangle;
+                    gd.SetRenderTarget(rt);
+                    gd.Clear(Color.Transparent);
+                    gd.Viewport = new Viewport(0, 0, SZ, SZ);
+                    gd.ScissorRectangle = new Rectangle(0, 0, SZ, SZ);
+                    _effect.Projection = Matrix.CreateOrthographicOffCenter(0, SZ, SZ, 0, -1, 1);
+                    _renderer.Begin();
+                    _renderer.Draw(_skel);
+                    _renderer.End();
+                    gd.SetRenderTarget(null);
+                    gd.Viewport = oldVp;
+                    gd.ScissorRectangle = oldScissor;
+
+                    var px = new Color[SZ * SZ];
+                    rt.GetData(px);
+                    int x0 = SZ, y0 = SZ, x1 = -1, y1 = -1;
+                    for (int y = 0; y < SZ; y++)
+                        for (int x = 0; x < SZ; x++)
                         {
-                            var probe = new AnimationState(new AnimationStateData(_data));
-                            probe.SetAnimation(0, anim.Name, true);
-                            probe.Update(_animDuration * (s + 0.5f) / SAMPLES);
-                            probe.Apply(_skel);
+                            if (px[y * SZ + x].A < 20) continue;
+                            if (x < x0) x0 = x;
+                            if (x > x1) x1 = x;
+                            if (y < y0) y0 = y;
+                            if (y > y1) y1 = y;
                         }
-                        _skel.ScaleX = _skel.ScaleY = scale;
-                        _skel.X = SZ / 2f; _skel.Y = SZ / 2f;
-                        _skel.UpdateWorldTransform(Skeleton.Physics.None);
-
-                        rt?.Dispose();
-                        rt = new RenderTarget2D(_device, SZ, SZ, false, SurfaceFormat.Color, DepthFormat.None);
-                        var gd = _device;
-                        var oldVp = gd.Viewport;
-                        var oldScissor = gd.ScissorRectangle;
-                        gd.SetRenderTarget(rt);
-                        gd.Clear(Color.Transparent);
-                        gd.Viewport = new Viewport(0, 0, SZ, SZ);
-                        gd.ScissorRectangle = new Rectangle(0, 0, SZ, SZ);
-                        _effect.Projection = Matrix.CreateOrthographicOffCenter(0, SZ, SZ, 0, -1, 1);
-                        _renderer.Begin();
-                        _renderer.Draw(_skel);
-                        _renderer.End();
-                        gd.SetRenderTarget(null);
-                        gd.Viewport = oldVp;
-                        gd.ScissorRectangle = oldScissor;
-
-                        var px = new Color[SZ * SZ];
-                        rt.GetData(px);
-                        // 按「列/行里不透明像素的密度」定边界：有的娘化 skel 带大片半透明光效，
-                        // 光效会顶到画布边缘，用最外像素当边界就会永远判成「被裁掉」。
-                        var colCnt = new int[SZ];
-                        var rowCnt = new int[SZ];
-                        int total = 0;
-                        for (int y = 0; y < SZ; y++)
-                            for (int x = 0; x < SZ; x++)
-                            {
-                                if (px[y * SZ + x].A < 24) continue;
-                                colCnt[x]++; rowCnt[y]++; total++;
-                            }
-                        if (total == 0) continue;                 // 这一帧什么都没有，跳过
-                        int thr = Math.Max(4, total / 400);       // 约 0.25% 密度才算「实体」
-                        int x0 = 0, x1 = SZ - 1, y0 = 0, y1 = SZ - 1;
-                        while (x0 < x1 && colCnt[x0] < thr) x0++;
-                        while (x1 > x0 && colCnt[x1] < thr) x1--;
-                        while (y0 < y1 && rowCnt[y0] < thr) y0++;
-                        while (y1 > y0 && rowCnt[y1] < thr) y1--;
-                        if (x1 <= x0 || y1 <= y0) continue;
-                        if (x0 <= 1 || y0 <= 1 || x1 >= SZ - 2 || y1 >= SZ - 2) { clippedAny = true; break; }
-
-                        float ux0 = (x0 - SZ / 2f) / scale, ux1 = (x1 - SZ / 2f) / scale;
-                        float uyTop = -(y0 - SZ / 2f) / scale, uyBot = -(y1 - SZ / 2f) / scale;
-                        samples.Add((ux1 - ux0, uyTop - uyBot, (ux0 + ux1) / 2f, (uyBot + uyTop) / 2f));
-                    }
-
-                    if (clippedAny)
-                    {
-                        // 有的 skel 里塞了超大坐标的隐藏顶点，怎么缩都会顶到边缘 → 直接放弃像素测量
-                        if (attempt < 3) { scale *= 0.5f; continue; }
-                        break;
-                    }
-                    if (samples.Count == 0) break;
-                    // 取「中位数那一帧」：既躲开只有特效的帧，也躲开特效糊满屏的帧
-                    samples.Sort((p, q) => (p.uw * p.uh).CompareTo(q.uw * q.uh));
-                    var pick = samples[samples.Count / 2];
-                    _measUw = Math.Max(pick.uw, 1f);
-                    _measUh = Math.Max(pick.uh, 1f);
-                    _measCx = pick.cx;
-                    _measCy = pick.cy;
+                    if (x1 < 0) return;
+                    bool clipped = x0 <= 1 || y0 <= 1 || x1 >= SZ - 2 || y1 >= SZ - 2;
+                    if (clipped && attempt < 3) { scale *= 0.5f; continue; }
+                    float pw = x1 - x0 + 1, ph = y1 - y0 + 1;
+                    float pcx = (x0 + x1) / 2f, pcy = (y0 + y1) / 2f;
+                    _measUw = pw / scale;
+                    _measUh = ph / scale;
+                    _measCx = (pcx - SZ / 2f) / scale;
+                    _measCy = -(pcy - SZ / 2f) / scale;
                     return;
                 }
             }
