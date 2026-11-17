@@ -349,6 +349,9 @@ namespace PlantSwap.App
         string ReanimBadge()
         {
             if (_rvA == null || !_rvA.Ready || !ReanimVisible) return null;
+            // 缺图块说明这个 reanim 用到了工具不认识的图集（自制素材常见），画出来会花，直接说清楚
+            if (_rvA.MissingRegions >= 8)
+                return "（缺 " + _rvA.MissingRegions + " 个图块：该素材用了自制图集，预览无法还原）";
             if (_rvZombie) return "（原版僵尸 · reanim " + _rvA.CurrentAnimation + "）";
             return "（原版植物 · reanim " + _rvA.CurrentAnimation + "）";
         }
