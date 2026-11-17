@@ -370,6 +370,7 @@ namespace PlantSwap.App
             try { Window.Title = TitleText; } catch { }
             try { SDL_SetWindowTitle(Window.Handle, TitleText); } catch { }
             _imgui = new ImGuiRenderer(this);
+            Program.InstallClipboard();
             var io = ImGui.GetIO();
             string fp = @"C:\Windows\Fonts\msyh.ttc";
             if (!File.Exists(fp)) fp = @"C:\Windows\Fonts\simhei.ttf";
@@ -968,6 +969,10 @@ namespace PlantSwap.App
             _imgui.BeforeLayout(gameTime);
             _imeAnchorFresh = false;
             BuildUi(w, h, top, bottom);
+
+            // ImGui 的 Ctrl+C 快捷键在这套后端里不触发，直接问 SDL 键盘状态
+            if (Program.CtrlCPressed())
+                Program.ClipboardSet(string.Join(Environment.NewLine, _log));
             UpdateImeRect();
             DrawImeOverlay();
             _imgui.AfterLayout();
@@ -1714,6 +1719,143 @@ namespace PlantSwap.App
 
         [System.Runtime.InteropServices.DllImport("SDL2.dll")]
         static extern void SDL_StopTextInput();
+
+        [System.Runtime.InteropServices.DllImport("SDL2.dll")]
+        static extern int SDL_SetClipboardText([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string text);
+
+        [System.Runtime.InteropServices.DllImport("SDL2.dll")]
+        static extern IntPtr SDL_GetClipboardText();
+
+        [System.Runtime.InteropServices.DllImport("SDL2.dll")]
+        static extern void SDL_free(IntPtr mem);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        static extern bool OpenClipboard(IntPtr hWndNewOwner);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        static extern bool CloseClipboard();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        static extern bool EmptyClipboard();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern IntPtr GlobalLock(IntPtr hMem);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern bool GlobalUnlock(IntPtr hMem);
+
+        const uint CF_UNICODETEXT = 13, GMEM_MOVEABLE = 0x0002;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern short GetAsyncKeyState(int vKey);
+
+        const int SDL_SCANCODE_C = 6, SDL_SCANCODE_LCTRL = 224, SDL_SCANCODE_RCTRL = 228;
+        static bool _ctrlCHeld;
+
+        /// <summary>Ctrl+C 边沿检测（SDL 原始键盘状态，绕开 ImGui 的快捷键映射）。</summary>
+        internal static bool CtrlCPressed()
+        {
+            try
+            {
+                bool ctrl = (GetAsyncKeyState(0x11) & 0x8000) != 0;   // VK_CONTROL
+                bool c = (GetAsyncKeyState(0x43) & 0x8000) != 0;      // 'C'
+                bool down = ctrl && c;
+                bool edge = down && !_ctrlCHeld;
+                _ctrlCHeld = down;
+                return edge;
+            }
+            catch { return false; }
+        }
+
+        internal static void ClipboardSet(string text)
+        {
+            LogIme("clip set len=" + (text?.Length ?? 0));
+            try
+            {
+                if (OpenClipboard(IntPtr.Zero))
+                {
+                    try
+                    {
+                        EmptyClipboard();
+                        var bytes = System.Text.Encoding.Unicode.GetBytes((text ?? "") + "\0");
+                        var h = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)bytes.Length);
+                        if (h != IntPtr.Zero)
+                        {
+                            var p = GlobalLock(h);
+                            if (p != IntPtr.Zero)
+                            {
+                                System.Runtime.InteropServices.Marshal.Copy(bytes, 0, p, bytes.Length);
+                                GlobalUnlock(h);
+                                SetClipboardData(CF_UNICODETEXT, h);
+                            }
+                        }
+                    }
+                    finally { CloseClipboard(); }
+                }
+                else LogIme("clip open failed");
+            }
+            catch (Exception e) { LogIme("clip ex " + e.Message); }
+            try { SDL_SetClipboardText(text ?? ""); } catch { }
+        }
+
+        internal static string ClipboardGet()
+        {
+            try
+            {
+                var p = SDL_GetClipboardText();
+                if (p == IntPtr.Zero) return "";
+                try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(p) ?? ""; }
+                finally { SDL_free(p); }
+            }
+            catch { return ""; }
+        }
+
+        // MonoGame.ImGuiNet 的后端没实现剪贴板回调，ImGui 的 Ctrl+C / 右键复制全都无效。
+        // 这里用自己的回调补上，走 SDL 剪贴板。
+        [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        delegate void SetClipboardTextFn(IntPtr userData, IntPtr text);
+
+        [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        delegate IntPtr GetClipboardTextFn(IntPtr userData);
+
+        static SetClipboardTextFn _setClipFn;
+        static GetClipboardTextFn _getClipFn;
+        static IntPtr _clipBuf;
+
+        static void OnSetClipboard(IntPtr userData, IntPtr text)
+        {
+            ClipboardSet(text == IntPtr.Zero ? "" : (System.Runtime.InteropServices.Marshal.PtrToStringUTF8(text) ?? ""));
+        }
+
+        static IntPtr OnGetClipboard(IntPtr userData)
+        {
+            var s = ClipboardGet();
+            var bytes = System.Text.Encoding.UTF8.GetBytes(s + "\0");
+            if (_clipBuf != IntPtr.Zero) { try { System.Runtime.InteropServices.Marshal.FreeHGlobal(_clipBuf); } catch { } }
+            _clipBuf = System.Runtime.InteropServices.Marshal.AllocHGlobal(bytes.Length);
+            System.Runtime.InteropServices.Marshal.Copy(bytes, 0, _clipBuf, bytes.Length);
+            return _clipBuf;
+        }
+
+        internal static void InstallClipboard()
+        {
+            try
+            {
+                var io = ImGui.GetIO();
+                _setClipFn = OnSetClipboard;
+                _getClipFn = OnGetClipboard;
+                io.SetClipboardTextFn = System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(_setClipFn);
+                io.GetClipboardTextFn = System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(_getClipFn);
+                io.ClipboardUserData = IntPtr.Zero;
+            }
+            catch (Exception e) { LogIme("clipboard hook ex " + e.Message); }
+        }
 
         [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
         static extern bool SDL_IsTextInputActive();
