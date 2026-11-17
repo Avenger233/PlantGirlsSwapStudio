@@ -121,6 +121,7 @@ namespace PlantSwap.App
                 _state = new AnimationState(new AnimationStateData(_data));
                 var anim = _data.FindAnimation("idle") ?? _data.FindAnimation("enter")
                            ?? (_data.Animations.Count > 0 ? _data.Animations.Items[0] : null);
+                _defaultAnim = anim?.Name;
                 if (anim != null) { _state.SetAnimation(0, anim.Name, true); _animDuration = Math.Max(anim.Duration, 0.05f); }
 
                 _fit = 0f; _fitW = _fitH = 0;
@@ -135,6 +136,19 @@ namespace PlantSwap.App
         }
 
         bool _userPlayed;   // 用户手动播过动作：不要再被 setup pose 覆盖
+        string _defaultAnim;   // 载入时的默认动作名（轨道被兜底清掉后靠它恢复）
+
+        /// <summary>确保有动作在播：兜底测量可能清掉了轨道，这时用默认动作补回来。</summary>
+        public void EnsurePlaying()
+        {
+            if (_skel == null || _state == null) return;
+            _userPlayed = true;
+            if (_state.GetCurrent(0) == null && !string.IsNullOrEmpty(_defaultAnim))
+            {
+                _state.SetAnimation(0, _defaultAnim, true);
+                Time = 0f;
+            }
+        }
 
         /// <summary>兜底测量：用 setup pose 的骨架包围盒（记得先把缩放还原成 1，否则会量小）。</summary>
         void MeasureBoundsFallback()
@@ -293,6 +307,7 @@ namespace PlantSwap.App
             if (_skel == null) return;
             if (!Paused)
             {
+                if (_state.GetCurrent(0) == null) EnsurePlaying();   // 轨道被兜底清过就自动补回来
                 Time += dt;
                 _state.Update(dt);
                 _state.Apply(_skel);

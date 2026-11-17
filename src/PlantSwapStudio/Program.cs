@@ -1647,7 +1647,12 @@ namespace PlantSwap.App
             }
             Tip("这个植物自带的全部 Spine 动作，选一个就循环播放");
             ImGui.SameLine();
-            if (ImGui.Button(_paused ? "播放" : "暂停")) _paused = !_paused;
+            if (ImGui.Button(_paused ? "播放" : "暂停"))
+            {
+                _paused = !_paused;
+                if (Program.DebugOn) Program.LogIme("play button -> paused=" + _paused + " anim=" + (_pvA?.CurrentAnimation ?? "null"));
+                if (!_paused) _pvA.EnsurePlaying();   // 兜底测量可能把轨道清掉了，恢复默认动作
+            }
             ImGui.SameLine();
             if (ImGui.Button("复位视图")) { _pvA.Zoom = 1; _pvA.Pan = Vector2.Zero; }
         }
@@ -1797,6 +1802,11 @@ namespace PlantSwap.App
             {
                 ImGui.SameLine();
                 ImGui.TextDisabled($"zoom {pv.Zoom:F2}x");
+                if (_mode == 2)
+                {
+                    ImGui.SameLine();
+                    ImGui.TextDisabled($"| t={pv.Time:F2}s | {pv.CurrentAnimation ?? "无动作"} | {(_paused ? "已暂停" : "播放中")}");
+                }
                 if (Program.DebugOn) { ImGui.SameLine(); ImGui.TextDisabled("| " + pv.FitInfo); }
             }
             ImGui.End();
