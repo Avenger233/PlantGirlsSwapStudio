@@ -19,6 +19,88 @@ namespace PlantSwap.App
         {
             [PreserveSig] int Activate(out int ptid);
             [PreserveSig] int Deactivate();
+            [PreserveSig] int CreateDocumentMgr(out ITfDocumentMgr ppDim);
+            [PreserveSig] int EnumDocumentMgrs(IntPtr ppEnum);
+            [PreserveSig] int GetFocus(out ITfDocumentMgr ppDim);
+        }
+
+        [ComImport]
+        [Guid("AA80E7F4-2021-11D2-93E0-0060B067B86E")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfDocumentMgr
+        {
+            [PreserveSig] int CreateContext(int tid, [MarshalAs(UnmanagedType.IUnknown)] object punk, uint dwFlags, out ITfContext ppic);
+            [PreserveSig] int Push(ITfContext pic);
+            [PreserveSig] int Pop(uint dwFlags);
+            [PreserveSig] int GetTop(out ITfContext ppic);
+        }
+
+        [ComImport]
+        [Guid("AA80E7FD-2021-11D2-93E0-0060B067B86E")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfContext
+        {
+            [PreserveSig] int RequestEditSession(int tid, ITfEditSession pes, uint dwFlags, out int phrSession);
+        }
+
+        [ComImport]
+        [Guid("D40C8AAE-AC92-4FC7-9A11-0EE0E23AA39B")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfContextComposition
+        {
+            [PreserveSig] int StartComposition(IntPtr pic, IntPtr range, IntPtr sink, out IntPtr ppComposition);
+            [PreserveSig] int EnumCompositions(out IEnumITfCompositionView ppEnum);
+            [PreserveSig] int FindComposition(IntPtr range, out IntPtr ppComposition);
+            [PreserveSig] int TakeOwnership(IntPtr pComposition);
+        }
+
+        [ComImport]
+        [Guid("5EFD22BA-7838-46CB-88E2-CADB14124F8F")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IEnumITfCompositionView
+        {
+            [PreserveSig] int Clone(out IEnumITfCompositionView ppEnum);
+            [PreserveSig] int Next(uint ulCount, out ITfCompositionView ppCompositionView, out uint pcFetched);
+            [PreserveSig] int Reset();
+            [PreserveSig] int Skip(uint ulCount);
+        }
+
+        [ComImport]
+        [Guid("D7540241-F9A1-4364-BEFC-DBCD2C4395B7")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfCompositionView
+        {
+            [PreserveSig] int GetOwnerClsid(out Guid pclsid);
+            [PreserveSig] int GetRange(out ITfRange ppRange);
+        }
+
+        [ComImport]
+        [Guid("AA80E7FF-2021-11D2-93E0-0060B067B86E")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfRange
+        {
+            [PreserveSig] int GetText(uint ec, uint dwFlags, IntPtr pchText, uint cchMax, out uint pcch);
+            [PreserveSig] int SetText(uint ec, uint dwFlags, [MarshalAs(UnmanagedType.LPWStr)] string pchText, int cch, out int pcch);
+        }
+
+        [ComImport]
+        [Guid("AA80E803-2021-11D2-93E0-0060B067B86E")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfEditSession
+        {
+            [PreserveSig] int DoEditSession(uint ec);
+        }
+
+        /// <summary>在编辑会话里把组合范围清空——这是唯一能丢掉 TSF 组合的办法。</summary>
+        sealed class ClearSession : ITfEditSession
+        {
+            readonly ITfRange _range;
+            public ClearSession(ITfRange r) { _range = r; }
+            public int DoEditSession(uint ec)
+            {
+                try { int n; _range.SetText(ec, 0, "", 0, out n); } catch { }
+                return 0;
+            }
         }
 
         [ComImport]
@@ -108,6 +190,9 @@ namespace PlantSwap.App
         static ITfUIElementMgr _mgr;
         static Sink _sink;
         static uint _cookie;
+        static ITfThreadMgr _tm;
+        static int _tid;
+        static bool _cancelling;
 
         internal static bool Ready => _mgr != null;
         internal static bool HasCandidates { get { lock (Cand) return Cand.Count > 0; } }
@@ -119,8 +204,10 @@ namespace PlantSwap.App
             {
                 var clsid = new Guid("529A9E6B-6587-4F23-AB9E-9C7D683E3C50");   // CLSID_TF_ThreadMgr
                 var tm = (ITfThreadMgr)Activator.CreateInstance(Type.GetTypeFromCLSID(clsid));
+                _tm = tm;
                 int tid;
                 tm.Activate(out tid);
+                _tid = tid;
                 _mgr = (ITfUIElementMgr)tm;
                 _sink = new Sink();
                 var src = (ITfSource)tm;
@@ -187,6 +274,42 @@ namespace PlantSwap.App
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// 结束当前组合：在 TSF 编辑会话里把组合范围清空。
+        /// 这是唯一可靠的办法——IMM 的 CPS_CANCEL 和伪造 Esc 对 TSF 输入法都无效。
+        /// </summary>
+        internal static bool CancelComposition()
+        {
+            if (_tm == null || _cancelling) return false;
+            _cancelling = true;
+            try
+            {
+                ITfDocumentMgr dm;
+                if (_tm.GetFocus(out dm) != 0 || dm == null) return false;
+                ITfContext ctx;
+                if (dm.GetTop(out ctx) != 0 || ctx == null) return false;
+                var ctxComp = ctx as ITfContextComposition;
+                if (ctxComp == null) return false;
+                IEnumITfCompositionView en;
+                if (ctxComp.EnumCompositions(out en) != 0 || en == null) return false;
+                ITfCompositionView view;
+                uint fetched;
+                if (en.Next(1, out view, out fetched) != 0 || fetched == 0 || view == null) return false;
+                ITfRange range;
+                if (view.GetRange(out range) != 0 || range == null) return false;
+
+                var session = new ClearSession(range);
+                int hrSession;
+                const uint TF_ES_SYNC = 0x1, TF_ES_READWRITE = 0x6;   // msctf.h
+                int hr = ctx.RequestEditSession(_tid, session, TF_ES_SYNC | TF_ES_READWRITE, out hrSession);
+                bool ok = hr == 0 && hrSession == 0;
+                if (ok) Clear();
+                return ok;
+            }
+            catch { return false; }
+            finally { _cancelling = false; }
         }
 
         internal static void Clear() { lock (Cand) { Cand.Clear(); Sel = -1; } }

@@ -9,6 +9,10 @@
 **需要退出游戏吗？**
 需要。资源在启动/进关时加载，运行中改文件不生效，还可能被占用写不进去。
 
+**打字打到一半点别处会怎样？**
+组合会被丢弃：程序在 TSF 编辑会话里把组合范围清空（ITfEditSession + ITfRange::SetText），
+再点回输入框是干净的，不会接着上次的拼音继续拼。按 Esc 同理。
+
 **输入法候选窗怎么来的？**
 Windows 10 起微软拼音 / QQ 输入法 / 搜狗都是 TSF 输入法，候选只经 ITfCandidateListUIElement 暴露
 （IMM 的 ImmGetCandidateList 对它们返回 dwCount=0）。程序挂了一个 ITfUIElementSink 旁听
