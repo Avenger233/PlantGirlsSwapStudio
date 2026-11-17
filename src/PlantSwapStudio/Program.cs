@@ -724,6 +724,19 @@ namespace PlantSwap.App
             Say($"{CnNames.DisplayName(_names, _keyA)} <-> {CnNames.DisplayName(_names, _keyB)}：{res.Count} 对{tag}");
             foreach (var p in res.Pairs) Say($"  [{p.Folder}] {p.NameA} <-> {p.NameB}");
             foreach (var m in res.Missing) Say($"  跳过 {m.Folder}/{m.Name}");
+
+            // 目标没有 Spine 素材时提醒一句：游戏那边就只能回退到原版 reanim 立绘
+            try
+            {
+                if (CurrentFolders().Contains("spanim"))
+                {
+                    int aSpine = CoreSwap.Family(_lists.Table, "spanim", _keyA).Count;
+                    int bSpine = CoreSwap.Family(_lists.Table, "spanim", _keyB).Count;
+                    if (aSpine > 0 && bSpine == 0)
+                        Say("注意：B 没有 Spine（娘化）素材，替换后它仍会用原版 reanim 立绘显示");
+                }
+            }
+            catch { }
             if (!apply) return;
             if (res.Count == 0) { Say("没有可操作的文件对"); return; }
             if (string.Equals(Environment.GetEnvironmentVariable("PLANTSWAP_DRY"), "1", StringComparison.Ordinal))
