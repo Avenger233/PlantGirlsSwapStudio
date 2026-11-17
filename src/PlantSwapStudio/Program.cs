@@ -760,6 +760,9 @@ namespace PlantSwap.App
 
         int _frames; bool _iconDone;
         IntPtr _hwnd; float _imeProbe;
+        System.Numerics.Vector2 _imeAnchor;      // 候选窗锚点（输入框左下角）
+        bool _imeAnchorSet;
+        float _imeLastX = float.NaN, _imeLastY = float.NaN;
 
         IntPtr FindMyHwnd()
         {
@@ -776,6 +779,16 @@ namespace PlantSwap.App
             }, IntPtr.Zero);
             _hwnd = found;
             return found;
+        }
+
+        /// <summary>输入框画完后调用：把候选窗锚到它的左下角，别跟着鼠标跑。</summary>
+        void NoteImeAnchor()
+        {
+            if (!ImGui.IsItemActive()) return;
+            var mn = ImGui.GetItemRectMin();
+            var mx = ImGui.GetItemRectMax();
+            _imeAnchor = new System.Numerics.Vector2(mn.X, mx.Y + 4);
+            _imeAnchorSet = true;
         }
 
         void ProbeIme()
@@ -963,12 +976,15 @@ namespace PlantSwap.App
             {
                 var io = ImGui.GetIO();
                 if (!io.WantTextInput) return;
-                var m = io.MousePos;
+                var m = _imeAnchorSet ? _imeAnchor : io.MousePos;
+                // 位置没变就别反复通知输入法：每帧重设会导致组合串被重置，候选列表跟着闪
+                if (!float.IsNaN(_imeLastX) && Math.Abs(_imeLastX - m.X) < 1 && Math.Abs(_imeLastY - m.Y) < 1) return;
+                _imeLastX = m.X; _imeLastY = m.Y;
                 var r = new SdlRect { X = (int)m.X, Y = (int)m.Y, W = 2, H = 24 };
                 SDL_SetTextInputRect(ref r);
-                // 再直接用 IMM 把组合窗/候选窗钉在光标下面（SDL 给的位置经常是 (0,0) 或干脆不给）
+                // 再直接用 IMM 把组合窗/候选窗钉在输入框下面（SDL 给的位置经常是 (0,0) 或干脆不给）
                 var hwnd = FindMyHwnd();
-                if (hwnd != IntPtr.Zero) Program.PositionIme(hwnd, (int)m.X, (int)m.Y + 24);
+                if (hwnd != IntPtr.Zero) Program.PositionIme(hwnd, (int)m.X, (int)m.Y + 20);
             }
             catch { }
         }
@@ -981,13 +997,13 @@ namespace PlantSwap.App
         void DrawImeOverlay()
         {
             var io = ImGui.GetIO();
-            if (!io.WantTextInput) return;
+            if (!io.WantTextInput) { _imeAnchorSet = false; _imeLastX = _imeLastY = float.NaN; return; }
             var st = Program.ReadIme(FindMyHwnd());
             if (!st.Active) return;
 
             var dl = ImGui.GetForegroundDrawList();
             float lh = ImGui.GetTextLineHeight();
-            var p = new System.Numerics.Vector2(io.MousePos.X, io.MousePos.Y + 26);
+            var p = _imeAnchorSet ? _imeAnchor : new System.Numerics.Vector2(io.MousePos.X, io.MousePos.Y + 26);
 
             // 拼音串
             string comp = string.IsNullOrEmpty(st.Comp) ? "" : st.Comp;
@@ -1001,12 +1017,16 @@ namespace PlantSwap.App
                 p.Y += lh + 6;
             }
 
-            // 候选词（每行一个，当前选中高亮）
-            for (int i = 0; i < st.Cand.Count; i++)
+            // 候选词：只显示当前这一页，序号按页内从 1 开始
+            int pageStart = Math.Max(0, st.PageStart);
+            int remain = Math.Max(0, st.Cand.Count - pageStart);
+            // 微软拼音有时只报 pageSize=1，但它其实给了整页候选，这里兜一把
+            int pageCount = st.PageSize > 1 ? st.PageSize : Math.Min(9, remain);
+            for (int i = 0; i < pageCount && pageStart + i < st.Cand.Count; i++)
             {
-                string item = (i + 1) + "  " + st.Cand[i];
+                string item = (i + 1) + "  " + st.Cand[pageStart + i];
                 var sz = ImGui.CalcTextSize(item);
-                bool sel = (i + st.PageStart) == st.Sel;
+                bool sel = (pageStart + i) == st.Sel;
                 var a = new System.Numerics.Vector2(p.X - 5, p.Y - 2);
                 var b = new System.Numerics.Vector2(p.X + Math.Max(sz.X, 90f) + 8, p.Y + lh + 2);
                 dl.AddRectFilled(a, b, sel ? 0xFF2A5C8Fu : 0xF0121212u, 3f);
@@ -1038,6 +1058,7 @@ namespace PlantSwap.App
             ImGui.SameLine();
             ImGui.SetNextItemWidth(560);
             ImGui.InputText("##game", ref _gameDir, 512);
+            NoteImeAnchor();
             ImGui.SameLine();
             if (ImGui.Button("重新载入")) ReloadGame();
             ImGui.SameLine();
@@ -1232,7 +1253,9 @@ namespace PlantSwap.App
                 if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
                 string q = isA ? _searchA : _searchB;
                 ImGui.SetNextItemWidth(-1);
-                if (ImGui.InputTextWithHint("##filter" + id, "筛选：中文名或英文 key", ref q, 64))
+                var filterChanged = ImGui.InputTextWithHint("##filter" + id, "筛选：中文名或英文 key", ref q, 64);
+                NoteImeAnchor();
+                if (filterChanged)
                 {
                     if (isA) _searchA = q; else _searchB = q;
                     RebuildFilterSide(isA);
@@ -1358,7 +1381,9 @@ namespace PlantSwap.App
                 if (ImGui.IsWindowAppearing()) ImGui.SetKeyboardFocusHere();
                 string wq = _watchSearch;
                 ImGui.SetNextItemWidth(-1);
-                if (ImGui.InputTextWithHint("##wfilter", "筛选：中文名或英文 key", ref wq, 64))
+                var wFilterChanged = ImGui.InputTextWithHint("##wfilter", "筛选：中文名或英文 key", ref wq, 64);
+                NoteImeAnchor();
+                if (wFilterChanged)
                 {
                     _watchSearch = wq;
                     RebuildWatchList();
