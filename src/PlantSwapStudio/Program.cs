@@ -1708,7 +1708,12 @@ namespace PlantSwap.App
             else if (!pv.Ready && !hasSheet) { ImGui.SameLine(); ImGui.TextDisabled("（无可用预览）"); }
             else if (!pv.Ready) { ImGui.SameLine(); ImGui.TextDisabled("（原版植物 · 显示原画）"); }
             else if (pv.Error != null) { ImGui.SameLine(); ImGui.TextColored(new System.Numerics.Vector4(0.9f, 0.4f, 0.4f, 1), pv.Error); }
-            else { ImGui.SameLine(); ImGui.TextDisabled($"zoom {pv.Zoom:F2}x"); }
+            else
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled($"zoom {pv.Zoom:F2}x");
+                if (Program.DebugOn) { ImGui.SameLine(); ImGui.TextDisabled("| " + pv.FitInfo); }
+            }
             ImGui.End();
             ImGui.PopStyleVar(2);
         }
