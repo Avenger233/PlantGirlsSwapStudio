@@ -364,8 +364,14 @@ namespace PlantSwap.App
             try { SDL_SetWindowTitle(Window.Handle, TitleText); } catch { }
         }
 
+        static readonly System.Diagnostics.Stopwatch _bootSw = System.Diagnostics.Stopwatch.StartNew();
+        bool _pendingReload;
+        static void BootMark(string what) =>
+            Program.LogIme("boot " + _bootSw.ElapsedMilliseconds + "ms  " + what);
+
         protected override void LoadContent()
         {
+            BootMark("enter LoadContent");
             // 窗口一建好就设标题，否则会先闪一下默认的 PlantSwapStudio
             try { Window.Title = TitleText; } catch { }
             try { SDL_SetWindowTitle(Window.Handle, TitleText); } catch { }
@@ -375,7 +381,9 @@ namespace PlantSwap.App
             string fp = @"C:\Windows\Fonts\msyh.ttc";
             if (!File.Exists(fp)) fp = @"C:\Windows\Fonts\simhei.ttf";
             if (File.Exists(fp))
-                io.Fonts.AddFontFromFileTTF(fp, 19f, IntPtr.Zero, io.Fonts.GetGlyphRangesChineseFull());
+                // 常用汉字范围（约 2500 字）比 ChineseFull（2 万多字）建图集快得多，
+                // 界面文字 + 植物名都在这个范围内；真遇到生僻字会显示成方框，但启动快一截。
+                io.Fonts.AddFontFromFileTTF(fp, 19f, IntPtr.Zero, io.Fonts.GetGlyphRangesChineseSimplifiedCommon());
             _imgui.RebuildFontAtlas();
             try
             {
@@ -431,7 +439,8 @@ namespace PlantSwap.App
             _pvA = new SpinePreview(GraphicsDevice, "");
             _pvB = new SpinePreview(GraphicsDevice, "");
             _pvMod = new SpinePreview(GraphicsDevice, "");
-            ReloadGame();
+            // 资源扫描挪到第一帧之后再跑：先把窗口亮出来，用户不会盯着白屏等
+            _pendingReload = true;
             // 每次启动都停在四选一；每个模式自己的选择留在各自的槽位里，进去就恢复
             _modeWatchKey[2] = _watchKey;
             for (int i = 0; i < 4; i++)
@@ -474,7 +483,9 @@ namespace PlantSwap.App
             _content = CoreSwap.FindContent(_gameDir);
             if (_content == null) { Say("找不到 Content 目录: " + _gameDir); return; }
             _names = CnNames.LoadCnNames(_content);
+            BootMark("before BuildLists");
             _lists = CoreSwap.BuildLists(_content, _names);
+            BootMark("after BuildLists");
             _pvA = new SpinePreview(GraphicsDevice, Path.Combine(_content, "spanim"));
             _pvB = new SpinePreview(GraphicsDevice, Path.Combine(_content, "spanim"));
             _pvMod = new SpinePreview(GraphicsDevice, "");
@@ -596,7 +607,9 @@ namespace PlantSwap.App
 
         void ApplyPairs(List<AssetPair> pairs, string mode)
         {
+            BootMark("before EnsureOriginal");
             EnsureOriginal();
+            BootMark("after EnsureOriginal");
             foreach (var pr in pairs)
             {
                 if (mode == "swap")
@@ -862,6 +875,13 @@ namespace PlantSwap.App
 
         protected override void Update(GameTime gameTime)
         {
+            if (_pendingReload)
+            {
+                _pendingReload = false;
+                BootMark("deferred ReloadGame");
+                ReloadGame();
+                BootMark("deferred done");
+            }
             // 标题只在需要时补一次（SDL 建窗前设不进去）
             if (Window.Title != TitleText) { try { Window.Title = TitleText; } catch { } }
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
