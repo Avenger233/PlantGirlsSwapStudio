@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>资源修改器</AssemblyName>
+    <RootNamespace>PlantSwap.App</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!--
+    Spine 运行时（spine-monogame.dll）。
+    游戏里的骨骼是 Spine 4.2 格式，必须用 4.2 的 C# 运行时编译出来的 DLL。
+
+    解析顺序：
+      1. 命令行传 -p:SpineMonogamePath=<dll 的完整路径>
+      2. 环境变量 SPINE_MONOGAME_DIR=<dll 所在目录>
+      3. 仓库内 third_party/spine-runtimes/... 下的编译产物
+    详见 docs/BUILD.md。
+  -->
+  <PropertyGroup>
+    <SpineMonogamePath Condition="'$(SpineMonogamePath)' == '' and '$(SPINE_MONOGAME_DIR)' != ''">$(SPINE_MONOGAME_DIR)\spine-monogame.dll</SpineMonogamePath>
+    <_SpineVendoredPath>$(MSBuildThisFileDirectory)..\..\third_party\spine-runtimes\spine-monogame\spine-monogame\bin\Release\netstandard2.0\spine-monogame.dll</_SpineVendoredPath>
+    <SpineMonogamePath Condition="'$(SpineMonogamePath)' == '' and Exists('$(_SpineVendoredPath)')">$(_SpineVendoredPath)</SpineMonogamePath>
+  </PropertyGroup>
+
+  <Target Name="CheckSpineRuntime" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(SpineMonogamePath)' == '' or !Exists('$(SpineMonogamePath)')"
+           Text="找不到 spine-monogame.dll（Spine 4.2 运行时）。请先编译 spine-runtimes，然后用 -p:SpineMonogamePath=完整路径 或设置环境变量 SPINE_MONOGAME_DIR 指向它。详见 docs/BUILD.md。" />
+  </Target>
+
+  <!--
+    MonoGame.ImGuiNet 这个包只放了裸 DLL、没有 lib/ 目录，NuGet 不会自动加编译引用，
+    所以这里显式按 HintPath 引用（PackageReference 只用来确保它被还原到本地缓存）。
+  -->
+  <PropertyGroup>
+    <ImGuiNetMonogamePath Condition="'$(ImGuiNetMonogamePath)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)monogame.imguinet\1.0.5\Monogame.ImGuiNet.dll</ImGuiNetMonogamePath>
+    <ImGuiNetMonogamePath Condition="'$(ImGuiNetMonogamePath)' == ''">$(UserProfile)\.nuget\packages\monogame.imguinet\1.0.5\Monogame.ImGuiNet.dll</ImGuiNetMonogamePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
+    <PackageReference Include="ImGui.NET" Version="1.89.7.1" />
+    <PackageReference Include="MonoGame.ImGuiNet" Version="1.0.5" />
+    <Reference Include="Monogame.ImGuiNet">
+      <HintPath>$(ImGuiNetMonogamePath)</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="spine-monogame">
+      <HintPath>$(SpineMonogamePath)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlantSwap.Core\PlantSwapCore.csproj" />
+  </ItemGroup>
+
+  <!-- 单文件发布时把原生依赖和图标一起打包进去 -->
+  <ItemGroup>
+    <EmbeddedResource Include="native\SDL2.dll" LogicalName="SDL2.dll" />
+    <EmbeddedResource Include="native\soft_oal.dll" LogicalName="soft_oal.dll" />
+    <EmbeddedResource Include="app.ico" LogicalName="app.ico" />
+    <EmbeddedResource Include="icon_src.png" LogicalName="icon.png" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,22 @@
+# 构建产物
+bin/
+obj/
+publish/
+*.user
+*.suo
+.vs/
+.idea/
+
+# 运行时产物
+imgui.ini
+*.log
+
+# 本机配置 / 备份（这些会落在游戏目录里，别误提交）
+资源修改器/
+资源修改器.ini
+studio.json
+
+# 系统垃圾
+Thumbs.db
+desktop.ini
+.DS_Store

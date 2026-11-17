@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+# Windows 脚本保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制
+*.dll binary
+*.ico binary
+*.png binary
+*.xnb binary
+*.skel binary

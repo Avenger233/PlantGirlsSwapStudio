@@ -1,0 +1,23 @@
+name: build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  core:
+    name: Core 与命令行工具
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      # Core 和 ReanimDump 不依赖 Spine 运行时，可以在 CI 里直接编译
+      - name: Build Core
+        run: dotnet build src/PlantSwap.Core/PlantSwapCore.csproj -c Release
+      - name: Build ReanimDump
+        run: dotnet build tools/ReanimDump/ReanimDump.csproj -c Release
+      - name: Smoke test CLI
+        run: dotnet run --project src/PlantSwap.Core -c Release -- --help

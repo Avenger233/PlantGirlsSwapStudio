@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DumpAnims</AssemblyName>
+    <RootNamespace>DumpAnims</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <SpineMonogamePath Condition="'$(SpineMonogamePath)' == '' and '$(SPINE_MONOGAME_DIR)' != ''">$(SPINE_MONOGAME_DIR)\spine-monogame.dll</SpineMonogamePath>
+    <_SpineVendoredPath>$(MSBuildThisFileDirectory)..\..\third_party\spine-runtimes\spine-monogame\spine-monogame\bin\Release\netstandard2.0\spine-monogame.dll</_SpineVendoredPath>
+    <SpineMonogamePath Condition="'$(SpineMonogamePath)' == '' and Exists('$(_SpineVendoredPath)')">$(_SpineVendoredPath)</SpineMonogamePath>
+  </PropertyGroup>
+
+  <Target Name="CheckSpineRuntime" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(SpineMonogamePath)' == '' or !Exists('$(SpineMonogamePath)')"
+           Text="找不到 spine-monogame.dll。见 docs/BUILD.md。" />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
+    <Reference Include="spine-monogame">
+      <HintPath>$(SpineMonogamePath)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
