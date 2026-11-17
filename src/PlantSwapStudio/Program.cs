@@ -467,6 +467,7 @@ namespace PlantSwap.App
 
         string _logText = "";
         bool _logScrollBottom;
+        bool _logFocused;  // 日志文本框这一帧是否有焦点/鼠标在里面；Ctrl+C 只在此时复制日志
 
         void ReloadGame()
         {
@@ -988,9 +989,12 @@ namespace PlantSwap.App
             _imeAnchorFresh = false;
             BuildUi(w, h, top, bottom);
 
-            // ImGui 的 Ctrl+C 快捷键在这套后端里不触发，直接问 SDL 键盘状态
+            // ImGui 的 Ctrl+C 快捷键在这套后端里不触发，这里自己补一份：
+            // 但只有「日志框正被编辑」时才复制日志，别的地方按 Ctrl+C 不要抢
             if (Program.CtrlCPressed())
-                Program.ClipboardSet(string.Join(Environment.NewLine, _log));
+            {
+                if (_logFocused) Program.ClipboardSet(string.Join(Environment.NewLine, _log));
+            }
             UpdateImeRect();
             DrawImeOverlay();
             _imgui.AfterLayout();
@@ -1243,6 +1247,7 @@ namespace PlantSwap.App
             ImGui.BeginChild("##logscroll", new System.Numerics.Vector2(0, 0), true);
             ImGui.InputTextMultiline("##logtext", ref _logText, 262144, new System.Numerics.Vector2(-1, -1),
                 ImGuiInputTextFlags.ReadOnly);
+            _logFocused = ImGui.IsItemActive() || ImGui.IsItemFocused() || ImGui.IsItemHovered();
             if (ImGui.BeginPopupContextItem("##logctx"))
             {
                 if (ImGui.MenuItem("复制全部")) ImGui.SetClipboardText(string.Join(Environment.NewLine, _log));
