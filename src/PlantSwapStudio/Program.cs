@@ -1414,7 +1414,11 @@ namespace PlantSwap.App
                 for (int i = 0; i < disp.Length; i++)
                 {
                     bool on = i == sel;
-                    if (ImGui.Selectable(disp[i] + "##" + id + i, on)) SelectIndex(i, isA);
+                    if (ImGui.Selectable(disp[i] + "##" + id + i, on))
+                    {
+                        SelectIndex(i, isA);
+                        ImGui.CloseCurrentPopup();   // 选完要收起来，否则下拉一直挂在外面
+                    }
                     if (on) ImGui.SetItemDefaultFocus();
                 }
                 if (disp.Length == 0) ImGui.TextDisabled("（没有匹配项）");
@@ -1539,7 +1543,11 @@ namespace PlantSwap.App
                 for (int i = 0; i < _watchDisp.Length; i++)
                 {
                     bool on = i == _watchSel;
-                    if (ImGui.Selectable(_watchDisp[i] + "##w" + i, on)) SelectWatch(i);
+                    if (ImGui.Selectable(_watchDisp[i] + "##w" + i, on))
+                    {
+                        SelectWatch(i);
+                        ImGui.CloseCurrentPopup();
+                    }
                     if (on) ImGui.SetItemDefaultFocus();
                 }
                 if (_watchDisp.Length == 0) ImGui.TextDisabled("（没有匹配项）");
