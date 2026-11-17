@@ -28,6 +28,9 @@ namespace PlantSwap.App
         public Vector2 Pan { get; set; }
         public bool Paused { get; set; }
         public bool Ready => _skel != null;
+
+        /// <summary>该骨架只有特效类动作（没有 idle 之类），默认按定格显示。</summary>
+        public bool OnlyEffectAnimations => _plainMeasure;
         public float Time { get; private set; }
 
         public IReadOnlyList<string> Animations
@@ -83,7 +86,7 @@ namespace PlantSwap.App
         {
             if (_data == null || _state == null) return;
             var anim = PickDefaultAnimation();
-            if (anim == null && _data.Animations.Count > 0) { _plainMeasure = true; _fit = 0; return; }
+            if (anim == null && _data.Animations.Count > 0) { anim = _data.Animations.Items[0]; }
             if (anim == null) return;
             _state.SetAnimation(0, anim.Name, true);
             _animDuration = Math.Max(anim.Duration, 0.05f);
@@ -146,8 +149,8 @@ namespace PlantSwap.App
                 var anim = PickDefaultAnimation();
                 if (anim == null && _data.Animations.Count > 0)
                 {
-                    // 只有特效类动作（萝丝就是 special，一刀砍出去会飘出画面）：
-                    // 默认用 setup pose 定格显示，用户想看动作可以在「动作」里手动选。
+                    // 只有特效类动作（萝丝就是 special：一刀砍出去，身体整体位移）
+                    // → 默认定格，保证构图；想看动作在「动作」里手动选
                     _plainMeasure = true;
                 }
                 if (anim != null) { _state.SetAnimation(0, anim.Name, true); _animDuration = Math.Max(anim.Duration, 0.05f); }

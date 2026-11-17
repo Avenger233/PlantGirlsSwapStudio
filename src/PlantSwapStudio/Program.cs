@@ -1712,6 +1712,7 @@ namespace PlantSwap.App
             {
                 ImGui.SameLine();
                 ImGui.TextDisabled($"zoom {pv.Zoom:F2}x");
+                if (pv.OnlyEffectAnimations) { ImGui.SameLine(); ImGui.TextDisabled("（该素材只有特效动作，已定格；想看动作在「动作」里选）"); }
                 if (Program.DebugOn) { ImGui.SameLine(); ImGui.TextDisabled("| " + pv.FitInfo); }
             }
             ImGui.End();
