@@ -759,6 +759,37 @@ namespace PlantSwap.App
         }
 
         int _frames; bool _iconDone;
+        IntPtr _hwnd; float _imeProbe;
+
+        IntPtr FindMyHwnd()
+        {
+            if (_hwnd != IntPtr.Zero) return _hwnd;
+            uint me = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            IntPtr found = IntPtr.Zero;
+            EnumWindows((h, l) =>
+            {
+                GetWindowThreadProcessId(h, out uint pid);
+                if (pid != me) return true;
+                if (GetWindowTextLengthW(h) == 0) return true;   // 跳过隐藏的辅助窗口
+                found = h;
+                return false;
+            }, IntPtr.Zero);
+            _hwnd = found;
+            return found;
+        }
+
+        void ProbeIme()
+        {
+            var io = ImGui.GetIO();
+            if (!io.WantTextInput) { _imeProbe = 0f; return; }
+            _imeProbe -= (float)gameTimeSeconds;
+            if (_imeProbe > 0) return;
+            _imeProbe = 60f;
+            Program.EnsureTextInput();
+        }
+
+        double gameTimeSeconds => _lastGameTime?.TotalGameTime.TotalSeconds ?? 0;
+        GameTime _lastGameTime;
 
         bool TrySetIconLate()
         {
@@ -805,7 +836,10 @@ namespace PlantSwap.App
             }
 
             _frames++;
+            _lastGameTime = gameTime;
             if (!_iconDone) { _iconDone = TrySetIconLate(); }
+            if (_frames == 2) { Program.EnsureTextInput(); Program.LogIme("startup " + Program.DumpIme(FindMyHwnd()).Replace("\r\n", " | ").Replace("\n", " | ")); }
+            ProbeIme();
             if (!_paused) { _pvA?.Update(dt); _pvB?.Update(dt); _pvMod?.Update(dt); TickReanim(dt); }
             HandlePreviewMouse();
             base.Update(gameTime);
@@ -911,6 +945,7 @@ namespace PlantSwap.App
             _imgui.BeforeLayout(gameTime);
             BuildUi(w, h, top, bottom);
             UpdateImeRect();
+            DrawImeOverlay();
             _imgui.AfterLayout();
             base.Draw(gameTime);
         }
@@ -926,12 +961,59 @@ namespace PlantSwap.App
         {
             try
             {
-                if (!ImGui.GetIO().WantTextInput) return;
-                var m = ImGui.GetIO().MousePos;
-                var r = new SdlRect { X = (int)m.X, Y = (int)m.Y, W = 1, H = 22 };
+                var io = ImGui.GetIO();
+                if (!io.WantTextInput) return;
+                var m = io.MousePos;
+                var r = new SdlRect { X = (int)m.X, Y = (int)m.Y, W = 2, H = 24 };
                 SDL_SetTextInputRect(ref r);
+                // 再直接用 IMM 把组合窗/候选窗钉在光标下面（SDL 给的位置经常是 (0,0) 或干脆不给）
+                var hwnd = FindMyHwnd();
+                if (hwnd != IntPtr.Zero) Program.PositionIme(hwnd, (int)m.X, (int)m.Y + 24);
             }
             catch { }
+        }
+
+        /// <summary>
+        /// 自己画输入法的拼音串和候选词。
+        /// 微软拼音在 SDL 窗口上不出原生候选窗（SDL 的 UI-less 模式把它藏了），
+        /// 但组合串和候选词通过 IMM 还能读到，所以这里补一个轻量候选窗。
+        /// </summary>
+        void DrawImeOverlay()
+        {
+            var io = ImGui.GetIO();
+            if (!io.WantTextInput) return;
+            var st = Program.ReadIme(FindMyHwnd());
+            if (!st.Active) return;
+
+            var dl = ImGui.GetForegroundDrawList();
+            float lh = ImGui.GetTextLineHeight();
+            var p = new System.Numerics.Vector2(io.MousePos.X, io.MousePos.Y + 26);
+
+            // 拼音串
+            string comp = string.IsNullOrEmpty(st.Comp) ? "" : st.Comp;
+            if (comp.Length > 0)
+            {
+                var sz = ImGui.CalcTextSize(comp);
+                float w = Math.Max(sz.X + 14f, 60f);
+                dl.AddRectFilled(p + new System.Numerics.Vector2(-5, -3), p + new System.Numerics.Vector2(w, lh + 5), 0xF0121212u, 4f);
+                dl.AddRect(p + new System.Numerics.Vector2(-5, -3), p + new System.Numerics.Vector2(w, lh + 5), 0xFF6FA8D8u, 4f);
+                dl.AddText(p, 0xFFEAF2FFu, comp);
+                p.Y += lh + 6;
+            }
+
+            // 候选词（每行一个，当前选中高亮）
+            for (int i = 0; i < st.Cand.Count; i++)
+            {
+                string item = (i + 1) + "  " + st.Cand[i];
+                var sz = ImGui.CalcTextSize(item);
+                bool sel = (i + st.PageStart) == st.Sel;
+                var a = new System.Numerics.Vector2(p.X - 5, p.Y - 2);
+                var b = new System.Numerics.Vector2(p.X + Math.Max(sz.X, 90f) + 8, p.Y + lh + 2);
+                dl.AddRectFilled(a, b, sel ? 0xFF2A5C8Fu : 0xF0121212u, 3f);
+                if (sel) dl.AddRect(a, b, 0xFF8FC7F0u, 3f);
+                dl.AddText(p, 0xFFEAF2FFu, item);
+                p.Y += lh + 4;
+            }
         }
 
         void DrawSheet(Texture2D tex, Rectangle r)
@@ -1397,11 +1479,193 @@ namespace PlantSwap.App
         static extern bool SDL_SetHint([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string name,
                                        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string value);
 
+        [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        static extern IntPtr SDL_GetHint([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string name);
+
+        static string HintText(string name)
+        {
+            // SDL 返回的是它自己持有的字符串，只能读不能释放（用 string 返回值会让编组器去 free → 堆损坏）
+            var p = SDL_GetHint(name);
+            return p == IntPtr.Zero ? "(null)" : System.Runtime.InteropServices.Marshal.PtrToStringUTF8(p);
+        }
+
+        [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        static extern void SDL_StartTextInput();
+
+        [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        static extern bool SDL_IsTextInputActive();
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern IntPtr ImmGetContext(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern bool ImmReleaseContext(IntPtr hWnd, IntPtr hIMC);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern bool ImmGetOpenStatus(IntPtr hIMC);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern IntPtr ImmAssociateContext(IntPtr hWnd, IntPtr hIMC);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern bool ImmSetOpenStatus(IntPtr hIMC, bool fOpen);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        internal struct ImePoint { public int X, Y; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        internal struct ImeRect { public int Left, Top, Right, Bottom; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        internal struct CompositionForm { public int Style; public ImePoint Pos; public ImeRect Area; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        internal struct CandidateForm { public int Index; public int Style; public ImePoint Pos; public ImeRect Area; }
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern bool ImmSetCompositionWindow(IntPtr hIMC, ref CompositionForm form);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern bool ImmSetCandidateWindow(IntPtr hIMC, ref CandidateForm form);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int ImmGetCompositionStringW(IntPtr hIMC, int dwIndex, System.Text.StringBuilder lpBuf, int dwBufLen);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll")]
+        static extern uint ImmGetCandidateListCountW(IntPtr hIMC, out uint count);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern uint ImmGetCandidateListW(IntPtr hIMC, uint dwIndex, IntPtr lpCandList, uint dwBufLen);
+
+        internal const int GCS_COMPSTR = 0x0008;
+        internal const int GCS_CURSORPOS = 0x0080;
+
+        /// <summary>当前输入法状态：拼音串 + 光标位置 + 候选词列表。原生候选窗不显示时我们自己画。</summary>
+        internal sealed class ImeState2
+        {
+            public string Comp = "";
+            public int Cursor = -1;
+            public readonly List<string> Cand = new List<string>();
+            public int Sel = -1;
+            public int PageStart, PageSize;
+            public bool Active => Comp.Length > 0 || Cand.Count > 0;
+        }
+
+        internal static ImeState2 ReadIme(IntPtr hwnd)
+        {
+            var st = new ImeState2();
+            var imc = ImmGetContext(hwnd);
+            if (imc == IntPtr.Zero) return st;
+            try
+            {
+                var sb = new System.Text.StringBuilder(512);
+                // 返回的是字节数，字符数要除以 2；不截断会带出缓冲区里的空字符
+                var n = ImmGetCompositionStringW(imc, GCS_COMPSTR, sb, 1024);
+                if (n > 0) st.Comp = sb.ToString(0, Math.Min(sb.Length, n / 2));
+                try { st.Cursor = ImmGetCompositionStringW(imc, GCS_CURSORPOS, null, 0); } catch { }
+
+                var buf = System.Runtime.InteropServices.Marshal.AllocHGlobal(4096);
+                try
+                {
+                    var cnt = ImmGetCandidateListW(imc, 0, buf, 4096);
+                    if (cnt > 0)
+                    {
+                        st.Sel = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 4);
+                        st.PageStart = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 8);
+                        st.PageSize = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 12);
+                        int count = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 0);
+                        for (int i = 0; i < count && i < 32; i++)
+                        {
+                            int off = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 16 + i * 4);
+                            if (off <= 0 || off >= 4096) continue;
+                            var s = System.Runtime.InteropServices.Marshal.PtrToStringUni(IntPtr.Add(buf, off));
+                            st.Cand.Add(s ?? "");
+                        }
+                    }
+                }
+                finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(buf); }
+            }
+            catch { }
+            finally { ImmReleaseContext(hwnd, imc); }
+            return st;
+        }
+
+        /// <summary>读一下当前组合字符串，用于确认输入法到底有没有在组词。</summary>
+        internal static string CompositionInfo(IntPtr hwnd)
+        {
+            try
+            {
+                var imc = ImmGetContext(hwnd);
+                if (imc == IntPtr.Zero) return "imc=0";
+                try
+                {
+                    var sb = new System.Text.StringBuilder(256);
+                    var n = ImmGetCompositionStringW(imc, GCS_COMPSTR, sb, 512);
+                    uint candCount = 0;
+                    try { ImmGetCandidateListCountW(imc, out candCount); } catch { }
+                    return "compLen=" + n + " comp='" + sb.ToString() + "' candLists=" + candCount;
+                }
+                finally { ImmReleaseContext(hwnd, imc); }
+            }
+            catch (Exception e) { return "comp ex " + e.Message; }
+        }
+
+        /// <summary>
+        /// 手动把输入法的组合窗/候选窗钉到光标附近。
+        /// SDL 有时不给 Windows 传位置，候选窗就会出现在窗口原点或干脆看不见。
+        /// </summary>
+        internal static bool PositionIme(IntPtr hwnd, int x, int y)
+        {
+            try
+            {
+                var imc = ImmGetContext(hwnd);
+                if (imc == IntPtr.Zero) return false;
+                try
+                {
+                    var cf = new CompositionForm
+                    {
+                        Style = 0x0002,     // CFS_POINT
+                        Pos = new ImePoint { X = x, Y = y },
+                        Area = new ImeRect { Left = x - 2, Top = y - 24, Right = x + 300, Bottom = y + 60 }
+                    };
+                    ImmSetCompositionWindow(imc, ref cf);
+
+                    var cand = new CandidateForm
+                    {
+                        Index = 0,
+                        Style = 0x0040,     // CFS_CANDIDATEPOS
+                        Pos = new ImePoint { X = x, Y = y },
+                        Area = new ImeRect { Left = x - 2, Top = y - 24, Right = x + 300, Bottom = y + 60 }
+                    };
+                    ImmSetCandidateWindow(imc, ref cand);
+                    return true;
+                }
+                finally { ImmReleaseContext(hwnd, imc); }
+            }
+            catch { return false; }
+        }
+
+        static string ImeState(IntPtr hwnd)
+        {
+            var sb = new System.Text.StringBuilder();
+            try { sb.AppendLine("hint=" + HintText("SDL_IME_SHOW_UI")); } catch (Exception e) { sb.AppendLine("hint ex " + e.Message); }
+            try { sb.AppendLine("textInputActive=" + SDL_IsTextInputActive()); } catch (Exception e) { sb.AppendLine("active ex " + e.Message); }
+            sb.AppendLine("hwnd=" + hwnd);
+            try
+            {
+                var imc = ImmGetContext(hwnd);
+                sb.AppendLine("imc=" + imc + " open=" + (imc != IntPtr.Zero && ImmGetOpenStatus(imc)));
+                if (imc != IntPtr.Zero) ImmReleaseContext(hwnd, imc);
+            }
+            catch (Exception e) { sb.AppendLine("imm ex " + e.Message); }
+            return sb.ToString();
+        }
+
         [STAThread]
         static void Main()
         {
-            try { SDL_SetHint("SDL_IME_SHOW_UI", "1"); } catch { }   // 必须在建窗口前
-            PrepEnvironment();
+            PrepEnvironment();                                        // 先把 SDL2.dll 解出来/加载好
+            try { SDL_SetHint("SDL_IME_SHOW_UI", "1"); } catch (Exception e) { LogIme("SetHint ex " + e.Message); }
             try
             {
                 using var g = new AppGame();
@@ -1414,6 +1678,25 @@ namespace PlantSwap.App
             }
         }
 
+        internal static string ImeLogPath => System.IO.Path.Combine(PvZPlantSwap.Core.PlantSwap.DataDir, "ime-debug.txt");
+
+        internal static void LogIme(string line)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(PvZPlantSwap.Core.PlantSwap.DataDir);
+                System.IO.File.AppendAllText(ImeLogPath, DateTime.Now.ToString("HH:mm:ss.fff") + "  " + line + Environment.NewLine);
+            }
+            catch { }
+        }
+
+        internal static string DumpIme(IntPtr hwnd) => ImeState(hwnd);
+
+        internal static void EnsureTextInput()
+        {
+            try { SDL_StartTextInput(); } catch (Exception e) { LogIme("StartTextInput ex " + e.Message); }
+        }
+
         static void PrepEnvironment()
         {
             string dataDir = PvZPlantSwap.Core.PlantSwap.DataDir;
@@ -1423,25 +1706,31 @@ namespace PlantSwap.App
             foreach (var name in new[] { "SDL2.dll", "soft_oal.dll" })
             {
                 string dst = System.IO.Path.Combine(nativeDir, name);
-                // 优先用 exe 同目录（游戏目录）自带的 dll
-                string beside = System.IO.Path.Combine(AppContext.BaseDirectory, name);
-                if (System.IO.File.Exists(beside))
-                {
-                    try { System.Runtime.InteropServices.NativeLibrary.Load(beside); continue; } catch { }
-                }
+                // 优先用随程序打包的 dll：游戏目录里那份 SDL2 是 2.0.20，
+                // 它的 Windows 输入法支持不完整（候选窗不显示），必须用新版本。
+                var loaded = false;
                 try
                 {
                     using var s = asm.GetManifestResourceStream(name);
-                    if (s == null) continue;
-                    bool need = !System.IO.File.Exists(dst) || new System.IO.FileInfo(dst).Length != s.Length;
-                    if (need)
+                    if (s != null)
                     {
-                        using var fs = System.IO.File.Create(dst);
-                        s.CopyTo(fs);
+                        bool need = !System.IO.File.Exists(dst) || new System.IO.FileInfo(dst).Length != s.Length;
+                        if (need)
+                        {
+                            using var fs = System.IO.File.Create(dst);
+                            s.CopyTo(fs);
+                        }
+                        try { System.Runtime.InteropServices.NativeLibrary.Load(dst); loaded = true; } catch { }
                     }
-                    try { System.Runtime.InteropServices.NativeLibrary.Load(dst); } catch { }
                 }
                 catch { }
+                if (loaded) continue;
+                // 兜底：exe 同目录（游戏目录）自带的 dll
+                string beside = System.IO.Path.Combine(AppContext.BaseDirectory, name);
+                if (System.IO.File.Exists(beside))
+                {
+                    try { System.Runtime.InteropServices.NativeLibrary.Load(beside); } catch { }
+                }
             }
             try
             {

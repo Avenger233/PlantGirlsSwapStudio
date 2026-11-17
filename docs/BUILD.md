@@ -5,6 +5,15 @@
 - Windows 10/11 x64
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 
+## 0. 原生依赖
+
+`src/PlantSwapStudio/native/` 下两个 DLL 会以 EmbeddedResource 形式打进单文件：
+
+- `SDL2.dll` —— **2.30.11**（不是 MonoGame 官方包里的 2.0.20）
+  游戏目录/官方包里的 2.0.20 在 Windows 上对中文输入法支持不完整，必须用新版；
+  `PrepEnvironment()` 会优先加载资源里这份，其次才回退到 exe 同目录的 dll。
+- `soft_oal.dll` —— OpenAL Soft（音效，本工具其实没用到，保留以便 MonoGame 初始化）
+
 ## 1. 准备 Spine 运行时
 
 游戏里的骨骼是 **Spine 4.2** 导出的（资源版本 4.2.43），必须用 4.2 的 C# 运行时。
