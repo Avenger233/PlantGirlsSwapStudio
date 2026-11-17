@@ -69,14 +69,12 @@ namespace PlantSwap.App
 
         void LoadCfg()
         {
-            // 只用旧位置的 json 记住游戏目录；其余设置一律走 资源修改器\资源修改器.ini
+            // 配置只有一个来源：资源修改器\资源修改器.ini。
+            // 旧版本还写过一个 studio.json（只存游戏目录，跟 ini 里的 game= 重复），现在不再读写它。
             try
             {
-                var boot = Path.Combine(CoreSwap.DataDir, "studio.json");
-                if (!File.Exists(boot)) return;
-                var jo = System.Text.Json.JsonDocument.Parse(File.ReadAllText(boot)).RootElement;
-                if (jo.TryGetProperty("game", out var g2) && g2.GetString() is string gs && gs.Length > 0)
-                    _gameDir = gs;
+                var legacy = Path.Combine(CoreSwap.DataDir, "studio.json");
+                if (File.Exists(legacy)) File.Delete(legacy);   // 顺手清掉历史遗留
             }
             catch { }
         }
@@ -154,12 +152,6 @@ namespace PlantSwap.App
                 sb.AppendLine("[folders]");
                 foreach (var kv in _folders) sb.AppendLine(kv.Key + "=" + (kv.Value ? "1" : "0"));
                 File.WriteAllText(CfgPath, sb.ToString());
-                try
-                {
-                    var boot = Path.Combine(CoreSwap.DataDir, "studio.json");
-                    File.WriteAllText(boot, "{\"game\":\"" + _gameDir + "\"}");
-                }
-                catch { }
             }
             catch { }
         }
@@ -182,7 +174,13 @@ namespace PlantSwap.App
             }
             catch { }
         }
-        protected override void OnExiting(object sender, EventArgs args) { SaveCfg(); base.OnExiting(sender, args); }
+        protected override void OnExiting(object sender, EventArgs args)
+        {
+            SaveCfg();
+            // ImGui 会顺手写一个 imgui.ini（布局全是固定写死的，没用到），退出时清掉，别在用户目录留垃圾
+            try { System.IO.File.Delete(System.IO.Path.Combine(AppContext.BaseDirectory, "imgui.ini")); } catch { }
+            base.OnExiting(sender, args);
+        }
 
         public AppGame()
         {
@@ -405,9 +403,9 @@ namespace PlantSwap.App
                             if (small != IntPtr.Zero) SendMessageW(hwnd, 0x80, IntPtr.Zero, small);
                             if (big != IntPtr.Zero) SendMessageW(hwnd, 0x80, (IntPtr)1, big);
                         }
-                        File.WriteAllText(Path.Combine(CoreSwap.DataDir, "icon-debug.txt"), $"hwnd={hwnd} small={small} big={big}");
+                        if (Program.DebugOn) File.AppendAllText(Program.ImeLogPath, $"icon hwnd={hwnd} small={small} big={big}\n");
                     }
-                    catch (Exception ex2) { try { File.WriteAllText(Path.Combine(CoreSwap.DataDir, "icon-debug.txt"), "ex " + ex2.Message); } catch { } }
+                    catch { }
                     var px = new Color[_iconTex.Width * _iconTex.Height];
                     _iconTex.GetData(px);
                     var gh = System.Runtime.InteropServices.GCHandle.Alloc(px, System.Runtime.InteropServices.GCHandleType.Pinned);
@@ -828,7 +826,6 @@ namespace PlantSwap.App
                     // MonoGame 的 Window.Title 只在 _title 变化时才推给 SDL，构造函数里设过就再也不推了 → 直接改窗口标题
                     SetWindowTextW(hwnd, TitleText);
                 }
-                File.WriteAllText(Path.Combine(CoreSwap.DataDir, "icon-debug2.txt"), $"hwnd={hwnd} small={small} big={big}");
                 return hwnd != IntPtr.Zero;
             }
             catch { }
@@ -1819,23 +1816,15 @@ namespace PlantSwap.App
                 // 已经配置过有效目录的（比如把 exe 放在别处但手动指过路）就不再烦他
                 try
                 {
-                    var sj = System.IO.Path.Combine(PvZPlantSwap.Core.PlantSwap.DataDir, "studio.json");
-                    if (System.IO.File.Exists(sj))
-                    {
-                        var txt = System.IO.File.ReadAllText(sj);
-                        int i = txt.IndexOf("\"game\"", StringComparison.Ordinal);
-                        if (i >= 0)
+                    var ini = System.IO.Path.Combine(AppContext.BaseDirectory, "资源修改器", "资源修改器.ini");
+                    if (System.IO.File.Exists(ini))
+                        foreach (var line in System.IO.File.ReadAllLines(ini))
                         {
-                            int c = txt.IndexOf(':', i);
-                            int q1 = txt.IndexOf('"', c);
-                            int q2 = txt.IndexOf('"', q1 + 1);
-                            if (q1 > 0 && q2 > q1)
-                            {
-                                var g = txt.Substring(q1 + 1, q2 - q1 - 1).Replace("\\\\", "\\");
-                                if (PvZPlantSwap.Core.PlantSwap.FindContent(g) != null) return true;
-                            }
+                            var t = line.Trim();
+                            if (!t.StartsWith("game=", StringComparison.OrdinalIgnoreCase)) continue;
+                            var g = t.Substring(5).Trim();
+                            if (g.Length > 0 && PvZPlantSwap.Core.PlantSwap.FindContent(g) != null) return true;
                         }
-                    }
                 }
                 catch { }
 
@@ -1869,10 +1858,15 @@ namespace PlantSwap.App
             }
         }
 
+        /// <summary>开发调试开关：设了环境变量 PLANTSWAP_DEBUG=1 才会写 ime-debug.txt，普通用户目录保持干净。</summary>
+        internal static bool DebugOn =>
+            string.Equals(Environment.GetEnvironmentVariable("PLANTSWAP_DEBUG"), "1", StringComparison.Ordinal);
+
         internal static string ImeLogPath => System.IO.Path.Combine(PvZPlantSwap.Core.PlantSwap.DataDir, "ime-debug.txt");
 
         internal static void LogIme(string line)
         {
+            if (!DebugOn) return;
             try
             {
                 System.IO.Directory.CreateDirectory(PvZPlantSwap.Core.PlantSwap.DataDir);

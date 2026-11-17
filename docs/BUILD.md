@@ -19,9 +19,7 @@
 ```
 资源修改器/
 ├── native/SDL2.dll, soft_oal.dll   ← 运行时解压
-├── studio.json                     ← 上次选的游戏目录
 ├── app.ico / icon.png              ← 窗口图标
-├── ime-debug.txt                   ← 输入法诊断（一行）
 ├── 备份/                            ← 资源原始快照
 ├── Mod/                            ← 导出的作品
 └── 资源修改器.ini                   ← 界面配置
@@ -29,6 +27,9 @@
 
 只有在 exe 目录**不可写**（例如装在 Program Files 且无权限）时才退回 `%APPDATA%\PvZPlantSwap`。
 游戏目录里原本的 `SDL2.dll` 不会被覆盖；首次启动会把 `%APPDATA%` 里的旧配置搬过来。
+
+调试开关：设环境变量 `PLANTSWAP_DEBUG=1` 才会写 `ime-debug.txt`，普通用户目录里不会出现调试文件。
+配置只有 `资源修改器.ini` 一个来源（早期版本还写过只存游戏目录的 `studio.json`，已废弃并在启动时清理）。
 
 ## 1. 准备 Spine 运行时
 
