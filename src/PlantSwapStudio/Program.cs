@@ -40,7 +40,7 @@ namespace PlantSwap.App
         string _savedKeyA = "", _savedKeyB = "";
         int _selA, _selB;
         bool _onlyPlants = true;
-        bool _paused;
+        bool _paused = true;   // 默认不播放，点「播放」才开始动
         bool _portraitMode = true;
         string _searchA = "";     // 植物 A 的搜索词
         string _searchB = "";     // 植物 B 的搜索词（替换/互换模式独立）
@@ -1327,7 +1327,7 @@ namespace PlantSwap.App
             if (_mode == 2)
             {
                 _portraitMode = true;
-                _paused = false;
+                // 保持当前的播放/暂停状态
                 RebuildWatchList();
                 if (!string.IsNullOrEmpty(_watchKey))
                 {
@@ -1439,7 +1439,7 @@ namespace PlantSwap.App
             Tip("立绘=实时 Spine 动画；图集=静态贴图");
             ImGui.SameLine();
             ImGui.SameLine();
-            ImGui.Checkbox("暂停动画", ref _paused);
+            if (ImGui.Button(_paused ? "播放" : "暂停")) _paused = !_paused;
             ImGui.SameLine();
             if (ImGui.Checkbox("只显示植物", ref _onlyPlants)) RebuildFilter();
             ImGui.SameLine();
@@ -1567,10 +1567,13 @@ namespace PlantSwap.App
             ImGui.SameLine();
             ImGui.SetNextItemWidth(260);
             if (ImGui.Combo("##anim", ref _watchAnim, names, names.Length) && _animNames.Length > 0)
+            {
                 _pvA.Play(_animNames[_watchAnim], true);
+                _paused = false;   // 选了动作就直接放，不用再点一次「播放」
+            }
             Tip("这个植物自带的全部 Spine 动作，选一个就循环播放");
             ImGui.SameLine();
-            ImGui.Checkbox("暂停动画", ref _paused);
+            if (ImGui.Button(_paused ? "播放" : "暂停")) _paused = !_paused;
             ImGui.SameLine();
             if (ImGui.Button("复位视图")) { _pvA.Zoom = 1; _pvA.Pan = Vector2.Zero; }
         }

@@ -53,7 +53,7 @@ namespace PlantSwap.App
             if (an == null) return;
             _state.SetAnimation(0, name, loop);
             _animDuration = Math.Max(an.Duration, 0.05f);
-            _plainMeasure = false;   // 用户手动选的动作：按这个动作的真实范围重新测量
+            // 构图仍按 setup pose 量（选中的动作可能带位移，按它量会把人缩成一小点）
             _measured = false;
             _fit = 0;
         }
@@ -149,8 +149,9 @@ namespace PlantSwap.App
                 var anim = PickDefaultAnimation();
                 if (anim == null && _data.Animations.Count > 0)
                 {
-                    // 只有特效类动作（萝丝就是 special：一刀砍出去，身体整体位移）
-                    // → 默认定格，保证构图；想看动作在「动作」里手动选
+                    // 只有特效类动作（萝丝就是 special）：照样设上，点「播放」能看到动作；
+                    // 构图仍按 setup pose 量，避免被动作位移带偏
+                    anim = _data.Animations.Items[0];
                     _plainMeasure = true;
                 }
                 if (anim != null) { _state.SetAnimation(0, anim.Name, true); _animDuration = Math.Max(anim.Duration, 0.05f); }
