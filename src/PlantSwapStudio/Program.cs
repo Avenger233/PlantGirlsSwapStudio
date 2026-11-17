@@ -851,7 +851,12 @@ namespace PlantSwap.App
             _frames++;
             _lastGameTime = gameTime;
             if (!_iconDone) { _iconDone = TrySetIconLate(); }
-            if (_frames == 2) { Program.EnsureTextInput(); Program.LogIme("startup " + Program.DumpIme(FindMyHwnd()).Replace("\r\n", " | ").Replace("\n", " | ")); }
+            if (_frames == 2)
+            {
+                var hw = FindMyHwnd();
+                Program.EnsureTextInput();
+                Program.LogIme("startup " + Program.DumpIme(hw).Replace("\r\n", " | ").Replace("\n", " | "));
+            }
             ProbeIme();
             if (!_paused) { _pvA?.Update(dt); _pvB?.Update(dt); _pvMod?.Update(dt); TickReanim(dt); }
             HandlePreviewMouse();
@@ -1020,7 +1025,17 @@ namespace PlantSwap.App
             {
                 _imeReadAt = gameTimeSeconds;
                 var fresh = hwnd != IntPtr.Zero ? Program.ReadIme(hwnd) : null;
-                if (fresh != null && fresh.Active) { _imeCache = fresh; _imeCacheAt = gameTimeSeconds; }
+                if (fresh != null && fresh.Active)
+                {
+                    var prev = _imeCache;
+                    bool sameCompose = prev != null && string.Equals(prev.Comp, fresh.Comp, StringComparison.Ordinal);
+                    bool samePage = prev != null && prev.PageStart == fresh.PageStart;
+                    // QQ 输入法会在「整页候选 / 只剩一条 / 空」之间来回跳，直接替换就会闪。
+                    // 同一段拼音、同一页时，只允许候选变多，不许变少；变少就继续用上一份。
+                    if (prev == null || !sameCompose || !samePage || fresh.Cand.Count >= prev.Cand.Count)
+                        _imeCache = fresh;
+                    _imeCacheAt = gameTimeSeconds;
+                }
             }
             if (_imeCache != null && gameTimeSeconds - _imeCacheAt > 0.35) _imeCache = null;   // 0.35s 内保持上一帧，消抖
             var cur = _imeCache;
@@ -1643,13 +1658,14 @@ namespace PlantSwap.App
                     var cnt = ImmGetCandidateListW(imc, 0, buf, 4096);
                     if (cnt > 0)
                     {
-                        st.Sel = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 4);
-                        st.PageStart = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 8);
-                        st.PageSize = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 12);
-                        int count = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 0);
+                        // CANDIDATELIST 布局：dwSize(0) dwCount(4) dwSelection(8) dwPageStart(12) dwPageSize(16) dwOffset[](20)
+                        int count = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 4);
+                        st.Sel = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 8);
+                        st.PageStart = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 12);
+                        st.PageSize = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 16);
                         for (int i = 0; i < count && i < 32; i++)
                         {
-                            int off = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 16 + i * 4);
+                            int off = System.Runtime.InteropServices.Marshal.ReadInt32(buf, 20 + i * 4);
                             if (off <= 0 || off >= 4096) continue;
                             var s = System.Runtime.InteropServices.Marshal.PtrToStringUni(IntPtr.Add(buf, off));
                             st.Cand.Add(s ?? "");
@@ -1716,6 +1732,47 @@ namespace PlantSwap.App
                 finally { ImmReleaseContext(hwnd, imc); }
             }
             catch { return false; }
+        }
+
+        // ---- 强制系统显示输入法组合窗（候选窗会随之出现）----
+        delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, EntryPoint = "SetWindowLongPtrW")]
+        static extern IntPtr SetWindowLongPtrW(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, EntryPoint = "CallWindowProcW")]
+        static extern IntPtr CallWindowProcW(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        const int GWLP_WNDPROC = -4;
+        const uint WM_IME_SETCONTEXT = 0x0281;
+        const int ISC_SHOWUICOMPOSITIONWINDOW = unchecked((int)0x80000000);
+
+        static IntPtr _oldWndProc;
+        static WndProcDelegate _wndProcDelegate;   // 必须保住引用，否则被 GC 回收会崩
+
+        static IntPtr ImeWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            if (msg == WM_IME_SETCONTEXT && (long)wParam == 1)
+            {
+                // SDL 会把这个位去掉（UI-less 输入法模式），这里原样加回去
+                long v = (long)lParam;
+                v |= ISC_SHOWUICOMPOSITIONWINDOW;
+                lParam = (IntPtr)v;
+            }
+            return CallWindowProcW(_oldWndProc, hWnd, msg, wParam, lParam);
+        }
+
+        internal static void HookImeWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || _oldWndProc != IntPtr.Zero) return;
+            try
+            {
+                _wndProcDelegate = ImeWndProc;
+                var fn = System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
+                _oldWndProc = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, fn);
+                LogIme("wndproc hooked old=" + _oldWndProc);
+            }
+            catch (Exception e) { LogIme("hook ex " + e.Message); }
         }
 
         static string ImeState(IntPtr hwnd)
