@@ -464,6 +464,9 @@ namespace PlantSwap.App
 
         void Say(string s) { _log.Add(s); if (_log.Count > 300) _log.RemoveAt(0); }
 
+        string _logText = "";
+        bool _logScrollBottom;
+
         void ReloadGame()
         {
             _content = CoreSwap.FindContent(_gameDir);
@@ -1205,10 +1208,19 @@ namespace PlantSwap.App
             ImGui.SetNextWindowPos(new System.Numerics.Vector2(0, h - bottom), ImGuiCond.Always);
             ImGui.SetNextWindowSize(new System.Numerics.Vector2(w, bottom), ImGuiCond.Always);
             ImGui.Begin("##log", fixedFlags);
-            ImGui.TextDisabled(_mode == 2 ? "日志（滚轮缩放 / 拖动平移 / 下拉框换动作）" : "日志（滚轮缩放预览 / 任意键拖动 / 双击预览复位）");
+            ImGui.TextDisabled(_mode == 2 ? "日志（可选中复制）" : "日志（可选中复制）");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("复制全部")) ImGui.SetClipboardText(string.Join(Environment.NewLine, _log));
+            ImGui.SameLine();
+            if (ImGui.SmallButton("跳到最新")) _logScrollBottom = true;
+            ImGui.SameLine();
+            ImGui.TextDisabled(_mode == 2 ? "滚轮缩放 / 拖动平移 / 下拉框换动作" : "滚轮缩放预览 / 任意键拖动 / 双击预览复位");
+            var joinedLog = string.Join("\n", _log);
+            if (joinedLog != _logText) { _logText = joinedLog; _logScrollBottom = true; }
             ImGui.BeginChild("##logscroll", new System.Numerics.Vector2(0, 0), true);
-            foreach (var line in _log) ImGui.TextUnformatted(line);
-            if (ImGui.GetScrollY() >= ImGui.GetScrollMaxY() - 4) ImGui.SetScrollHereY(1f);
+            ImGui.InputTextMultiline("##logtext", ref _logText, 262144, new System.Numerics.Vector2(-1, -1),
+                ImGuiInputTextFlags.ReadOnly);
+            if (_logScrollBottom) { ImGui.SetScrollHereY(1f); _logScrollBottom = false; }
             ImGui.EndChild();
             ImGui.End();
         }
@@ -1542,8 +1554,61 @@ namespace PlantSwap.App
             ModeCard(2, "观赏模式", new[] { "不改任何文件", "点一下换个动作", "像在游戏里那样看植物" }, x0 + 552f, y0);
             ModeCard(3, "Mod 模式", new[] { "导出贴图去改", "改完再导回来", "也能导入别人的作品" }, x0 + 828f, y0);
             dl.AddText(new System.Numerics.Vector2(x0, y0 + 196f), 0xFFA8978Au, "第一次改动文件时会自动保存一份原始备份，之后可以一键还原。");
+            string sys = SysInfoLine();
+            if (sys.Length > 0) dl.AddText(new System.Numerics.Vector2(x0, y0 + 226f), 0xFF6E7E8Eu, sys);
             ImGui.End();
             ImGui.PopStyleColor();
+        }
+
+        // ---- 系统 / 输入法自检（显示在四选一界面底部，方便用户报问题时贴出来）----
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr GetKeyboardLayout(uint idThread);
+
+        [System.Runtime.InteropServices.DllImport("imm32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int ImmGetDescriptionW(IntPtr hkl, System.Text.StringBuilder lpszDescription, int uBufLen);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int GetLocaleInfoW(int locale, int lcType, System.Text.StringBuilder lpLCData, int cchData);
+
+        const int LOCALE_SLOCALIZEDDISPLAYNAME = 0x00000002;
+
+        static string ImeDescription()
+        {
+            try
+            {
+                var hkl = GetKeyboardLayout(0);
+                var sb = new System.Text.StringBuilder(256);
+                int n = ImmGetDescriptionW(hkl, sb, 256);
+                if (n > 0) return sb.ToString();   // 老式 IMM 输入法有自己的名字
+
+                // TSF 输入法（微软拼音 / QQ / 搜狗）没有 IMM 描述，退回语言显示名
+                int lang = (int)((long)hkl & 0xFFFF);
+                var lb = new System.Text.StringBuilder(128);
+                int m = GetLocaleInfoW(lang, LOCALE_SLOCALIZEDDISPLAYNAME, lb, 128);
+                if (m > 0) return lb.ToString() + "(TSF)";
+                return "布局 0x" + lang.ToString("X4");
+            }
+            catch { return "未知"; }
+        }
+
+        static string _sysInfo = "";
+        static bool _sysInfoTsfReady;
+
+        static string SysInfoLine()
+        {
+            // TSF 状态在窗口创建后才就绪，状态变了就重算一次
+            if (_sysInfo.Length > 0 && _sysInfoTsfReady == TsfIme.Ready) return _sysInfo;
+            try
+            {
+                var os = System.Runtime.InteropServices.RuntimeInformation.OSDescription.Trim();
+                var arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString();
+                var ime = ImeDescription();
+                var tsf = TsfIme.Ready ? "TSF 已连接" : "TSF 未连接（候选可能读不到）";
+                _sysInfo = "系统 " + os + " · " + arch + " · 输入法 " + ime + " · " + tsf;
+                _sysInfoTsfReady = TsfIme.Ready;
+            }
+            catch { _sysInfo = ""; }
+            return _sysInfo;
         }
 
         void ModeCard(int idx, string title, string[] body, float x, float y)

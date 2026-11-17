@@ -82,7 +82,7 @@ namespace PlantSwap.App
                 _rvA.SetAttachment(null, null);
         }
         string[] _rvAnimLabels = Array.Empty<string>();
-        float _rvLogAcc;
+
 
         /// <summary>当前 A 面板是不是在放 reanim（僵尸页，或植物页里没有 Spine 的植物）。</summary>
         bool ReanimVisible => _rvA != null && _rvA.Ready && (_rvZombie || (_portraitMode && !_pvA.Ready));
@@ -128,22 +128,8 @@ namespace PlantSwap.App
             {
                 _rvA.Paused = _paused;
                 _rvA.Update(dt);
-                UpdateReanimLog(dt);
-            }
+                }
             catch { }
-        }
-
-        /// <summary>日志里的 reanim 状态行原地刷新（原来只在启动时写一次，永远显示 0）。</summary>
-        void UpdateReanimLog(float dt)
-        {
-            if (_rvA == null || !_rvA.Ready || !ReanimVisible) return;
-            _rvLogAcc += dt;
-            if (_rvLogAcc < 0.25f) return;
-            _rvLogAcc = 0f;
-            string line = "reanim 预览：" + _rvA.Key + " / " + _rvA.CurrentAnimation;
-            for (int i = _log.Count - 1; i >= 0; i--)
-                if (_log[i].StartsWith("reanim 预览", StringComparison.Ordinal)) { _log[i] = line; return; }
-            _log.Add(line);
         }
 
         /// <summary>鼠标在 A 面板上且是 reanim 预览时，接管滚轮缩放 / 拖动平移 / 双击复位。</summary>
@@ -411,7 +397,7 @@ namespace PlantSwap.App
                 if (!string.IsNullOrEmpty(anim)) _rvA.Play(anim);
                 for (int i = 0; i < _rvA.Animations.Count; i++)
                     if (string.Equals(_rvA.Animations[i], _rvA.CurrentAnimation, StringComparison.OrdinalIgnoreCase)) { _rvAnimSel = i; break; }
-                Say("reanim 预览：" + _zombieKeys[idx] + " / " + _rvA.CurrentAnimation);
+
             }
             catch (Exception ex) { Say("启动参数处理失败：" + ex.Message); }
         }
