@@ -50,6 +50,8 @@ namespace PlantSwap.App
             if (an == null) return;
             _state.SetAnimation(0, name, loop);
             _animDuration = Math.Max(an.Duration, 0.05f);
+            _plainMeasure = false;   // 用户手动选的动作：按这个动作的真实范围重新测量
+            _measured = false;
             _fit = 0;
         }
 
@@ -81,6 +83,7 @@ namespace PlantSwap.App
         {
             if (_data == null || _state == null) return;
             var anim = PickDefaultAnimation();
+            if (anim == null && _data.Animations.Count > 0) { _plainMeasure = true; _fit = 0; return; }
             if (anim == null) return;
             _state.SetAnimation(0, anim.Name, true);
             _animDuration = Math.Max(anim.Duration, 0.05f);
@@ -141,6 +144,12 @@ namespace PlantSwap.App
                 _skel = new Skeleton(_data);
                 _state = new AnimationState(new AnimationStateData(_data));
                 var anim = PickDefaultAnimation();
+                if (anim == null && _data.Animations.Count > 0)
+                {
+                    // 只有特效类动作（萝丝就是 special，一刀砍出去会飘出画面）：
+                    // 默认用 setup pose 定格显示，用户想看动作可以在「动作」里手动选。
+                    _plainMeasure = true;
+                }
                 if (anim != null) { _state.SetAnimation(0, anim.Name, true); _animDuration = Math.Max(anim.Duration, 0.05f); }
 
                 _fit = 0f; _fitW = _fitH = 0;
@@ -157,6 +166,9 @@ namespace PlantSwap.App
         bool _measured;
         int _measTries;
         float _measScale;
+
+        /// <summary>为 true 时尺寸测量忽略动画（只有特效动作的 skel 用，避免特效把包围盒撑爆）。</summary>
+        bool _plainMeasure;
 
         void MeasureFallback()
         {
@@ -214,7 +226,7 @@ namespace PlantSwap.App
                     rt?.Dispose();
                     rt = new RenderTarget2D(_device, w, h, false, SurfaceFormat.Color, DepthFormat.None);
                     _skel.SetToSetupPose();
-                    var anim = _state?.GetCurrent(0)?.Animation;
+                    var anim = _plainMeasure ? null : _state?.GetCurrent(0)?.Animation;
                     if (anim != null)
                     {
                         var probe = new AnimationState(new AnimationStateData(_data));
@@ -291,7 +303,7 @@ namespace PlantSwap.App
                 const int SZ = 512;
                 const int SAMPLES = 8;      // 一帧测不准：有的动画开头只有特效/身体还在画面外
                 float scale = 0.5f;
-                var anim = _state?.GetCurrent(0)?.Animation;
+                var anim = _plainMeasure ? null : _state?.GetCurrent(0)?.Animation;
                 for (int attempt = 0; attempt < 4; attempt++)
                 {
                     _measTries = attempt + 1; _measScale = scale;
