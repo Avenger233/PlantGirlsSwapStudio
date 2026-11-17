@@ -1554,8 +1554,18 @@ namespace PlantSwap.App
             ModeCard(2, "观赏模式", new[] { "不改任何文件", "点一下换个动作", "像在游戏里那样看植物" }, x0 + 552f, y0);
             ModeCard(3, "Mod 模式", new[] { "导出贴图去改", "改完再导回来", "也能导入别人的作品" }, x0 + 828f, y0);
             dl.AddText(new System.Numerics.Vector2(x0, y0 + 196f), 0xFFA8978Au, "第一次改动文件时会自动保存一份原始备份，之后可以一键还原。");
+            // 自检信息用只读输入框，能选中也能 Ctrl+C
             string sys = SysInfoLine();
-            if (sys.Length > 0) dl.AddText(new System.Numerics.Vector2(x0, y0 + 226f), 0xFF6E7E8Eu, sys);
+            if (sys.Length > 0)
+            {
+                ImGui.SetCursorScreenPos(new System.Numerics.Vector2(x0, y0 + 222f));
+                ImGui.SetNextItemWidth(total);
+                string sysEdit = sys;
+                ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.43f, 0.49f, 0.56f, 1f));
+                ImGui.InputText("##sysinfo", ref sysEdit, 512,
+                    ImGuiInputTextFlags.ReadOnly | ImGuiInputTextFlags.NoHorizontalScroll);
+                ImGui.PopStyleColor();
+            }
             ImGui.End();
             ImGui.PopStyleColor();
         }
@@ -1576,6 +1586,9 @@ namespace PlantSwap.App
         {
             try
             {
+                var tsfName = TsfIme.ActiveImeName();     // 最准：直接问 TSF 当前配置
+                if (tsfName.Length > 0) return tsfName;
+
                 var hkl = GetKeyboardLayout(0);
                 var sb = new System.Text.StringBuilder(256);
                 int n = ImmGetDescriptionW(hkl, sb, 256);

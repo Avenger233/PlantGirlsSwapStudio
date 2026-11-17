@@ -177,6 +177,54 @@ namespace PlantSwap.App
             [PreserveSig] int Skip(uint ulCount);
         }
 
+        [StructLayout(LayoutKind.Explicit, Size = 88)]
+        struct TF_INPUTPROCESSORPROFILE
+        {
+            [FieldOffset(0)] public uint dwProfileType;
+            [FieldOffset(4)] public ushort langid;
+            [FieldOffset(8)] public Guid clsid;
+            [FieldOffset(24)] public Guid guidProfile;
+            [FieldOffset(40)] public Guid catid;
+            [FieldOffset(56)] public IntPtr hklSubstitute;
+            [FieldOffset(64)] public uint dwCaps;
+            [FieldOffset(72)] public IntPtr hkl;
+            [FieldOffset(80)] public uint dwFlags;
+        }
+
+        // msctf.h 顺序：ActivateProfile .. UnregisterProfile, GetActiveProfile
+        [ComImport]
+        [Guid("71C6E74C-0F28-11D8-A82A-00065B84435C")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfInputProcessorProfileMgr
+        {
+            [PreserveSig] int ActivateProfile(uint dwProfileType, ushort langid, ref Guid clsid, ref Guid guidProfile, IntPtr hkl, uint dwFlags);
+            [PreserveSig] int DeactivateProfile(uint dwProfileType, ushort langid, ref Guid clsid, ref Guid guidProfile, IntPtr hkl, uint dwFlags);
+            [PreserveSig] int GetProfile(uint dwProfileType, ushort langid, ref Guid clsid, ref Guid guidProfile, IntPtr hkl, out TF_INPUTPROCESSORPROFILE pProfile);
+            [PreserveSig] int EnumProfiles(ushort langid, IntPtr ppEnum);
+            [PreserveSig] int ReleaseInputProcessor(ref Guid rclsid, uint dwFlags);
+            [PreserveSig] int RegisterProfile(ref Guid rclsid, ushort langid, ref Guid guidProfile, IntPtr pchDesc, uint cchDesc, IntPtr pchIconFile, uint cchFile, uint uIconIndex, IntPtr hklSubstitute, uint dwPreferredLayout, uint dwFlags);
+            [PreserveSig] int UnregisterProfile(ref Guid rclsid, ushort langid, ref Guid guidProfile, uint dwFlags);
+            [PreserveSig] int GetActiveProfile(ref Guid rcatid, out TF_INPUTPROCESSORPROFILE pProfile);
+        }
+
+        // 只用到 GetLanguageProfileDescription（第 11 个方法），前面占位
+        [ComImport]
+        [Guid("1F02B6C5-7842-4EE6-8A0B-9A24183A95CA")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface ITfInputProcessorProfiles
+        {
+            [PreserveSig] int Register(ref Guid rclsid);
+            [PreserveSig] int Unregister(ref Guid rclsid);
+            [PreserveSig] int AddLanguageProfile(ref Guid rclsid, ushort langid, ref Guid guidProfile, IntPtr pchDesc, uint cchDesc, IntPtr pchIconFile, uint cchFile, uint uIconIndex);
+            [PreserveSig] int RemoveLanguageProfile(ref Guid rclsid, ushort langid, ref Guid guidProfile);
+            [PreserveSig] int EnumInputProcessorInfo(IntPtr ppEnum);
+            [PreserveSig] int GetDefaultLanguageProfile(ushort langid, ref Guid catid, out Guid pclsid, out Guid pguidProfile);
+            [PreserveSig] int SetDefaultLanguageProfile(ushort langid, ref Guid rclsid, ref Guid guidProfiles);
+            [PreserveSig] int ActivateLanguageProfile(ref Guid rclsid, ushort langid, ref Guid guidProfiles);
+            [PreserveSig] int GetActiveLanguageProfile(ref Guid rclsid, ushort langid, out Guid pguidProfile);
+            [PreserveSig] int GetLanguageProfileDescription(ref Guid rclsid, ushort langid, ref Guid guidProfile, [MarshalAs(UnmanagedType.BStr)] out string pbstrProfile);
+        }
+
         sealed class Sink : ITfUIElementSink
         {
             public int BeginUIElement(uint id, ref int pbShow) { try { TsfIme.Refresh(id); } catch { } return 0; }
@@ -310,6 +358,24 @@ namespace PlantSwap.App
             }
             catch { return false; }
             finally { _cancelling = false; }
+        }
+
+        /// <summary>当前激活的 TSF 输入法显示名（如「QQ拼音输入法」），拿不到返回空串。</summary>
+        internal static string ActiveImeName()
+        {
+            try
+            {
+                var clsid = new Guid("33C53A50-F456-4884-B049-85FD643ECFED");   // CLSID_TF_InputProcessorProfiles
+                var mgr = (ITfInputProcessorProfileMgr)Activator.CreateInstance(Type.GetTypeFromCLSID(clsid));
+                var cat = new Guid("34745C63-B2F0-4784-8B67-5E12C8701A31");      // GUID_TFCAT_TIP_KEYBOARD
+                TF_INPUTPROCESSORPROFILE prof;
+                if (mgr.GetActiveProfile(ref cat, out prof) != 0) return "";
+                var ps = (ITfInputProcessorProfiles)mgr;
+                string desc;
+                if (ps.GetLanguageProfileDescription(ref prof.clsid, prof.langid, ref prof.guidProfile, out desc) != 0) return "";
+                return desc ?? "";
+            }
+            catch { return ""; }
         }
 
         internal static void Clear() { lock (Cand) { Cand.Clear(); Sel = -1; } }
