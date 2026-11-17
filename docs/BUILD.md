@@ -14,8 +14,21 @@
   `PrepEnvironment()` 会优先加载资源里这份，其次才回退到 exe 同目录的 dll。
 - `soft_oal.dll` —— OpenAL Soft（音效，本工具其实没用到，保留以便 MonoGame 初始化）
 
-运行时会解压到 **`<游戏目录>/资源修改器/native/`**（和备份、Mod、ini 放一起）；
-猜不到游戏目录时才退回 `%APPDATA%\PvZPlantSwap\native`。游戏目录里原本的 `SDL2.dll` 不会被覆盖。
+所有运行期文件都生成在 **`<游戏目录>/资源修改器/`**（exe 同级）：
+
+```
+资源修改器/
+├── native/SDL2.dll, soft_oal.dll   ← 运行时解压
+├── studio.json                     ← 上次选的游戏目录
+├── app.ico / icon.png              ← 窗口图标
+├── ime-debug.txt                   ← 输入法诊断（一行）
+├── 备份/                            ← 资源原始快照
+├── Mod/                            ← 导出的作品
+└── 资源修改器.ini                   ← 界面配置
+```
+
+只有在 exe 目录**不可写**（例如装在 Program Files 且无权限）时才退回 `%APPDATA%\PvZPlantSwap`。
+游戏目录里原本的 `SDL2.dll` 不会被覆盖；首次启动会把 `%APPDATA%` 里的旧配置搬过来。
 
 ## 1. 准备 Spine 运行时
 

@@ -1888,23 +1888,35 @@ namespace PlantSwap.App
             try { SDL_StartTextInput(); } catch (Exception e) { LogIme("StartTextInput ex " + e.Message); }
         }
 
-        static void PrepEnvironment()
+        /// <summary>老版本把配置/图标放 %APPDATA%，搬到新目录时顺手带过来，别让用户重配。</summary>
+        static void MigrateFromAppData(string dataDir)
         {
-            string dataDir = PvZPlantSwap.Core.PlantSwap.DataDir;
-            // 原生 dll 直接放在 exe 同级的「资源修改器 / native」，跟备份、Mod、ini 放一起。
-            // 只有 exe 目录不可写（例如装在 Program Files 且没权限）时才退回 %APPDATA%。
-            string toolDir = dataDir;
             try
             {
-                var beside = System.IO.Path.Combine(AppContext.BaseDirectory, "资源修改器");
-                System.IO.Directory.CreateDirectory(beside);
-                var probe = System.IO.Path.Combine(beside, ".write-test");
-                System.IO.File.WriteAllText(probe, "1");
-                System.IO.File.Delete(probe);
-                toolDir = beside;
+                var appdata = Environment.GetEnvironmentVariable("APPDATA");
+                if (string.IsNullOrEmpty(appdata)) return;
+                var old = System.IO.Path.Combine(appdata, "PvZPlantSwap");
+                if (string.Equals(old, dataDir, StringComparison.OrdinalIgnoreCase)) return;
+                if (!System.IO.Directory.Exists(old)) return;
+                foreach (var name in new[] { "studio.json", "names_override.json", "app.ico", "icon.png" })
+                {
+                    var src = System.IO.Path.Combine(old, name);
+                    var dst = System.IO.Path.Combine(dataDir, name);
+                    if (System.IO.File.Exists(src) && !System.IO.File.Exists(dst))
+                    {
+                        try { System.IO.File.Copy(src, dst); } catch { }
+                    }
+                }
             }
-            catch { toolDir = dataDir; }
-            string nativeDir = System.IO.Path.Combine(toolDir, "native");
+            catch { }
+        }
+
+        static void PrepEnvironment()
+        {
+            // DataDir 现在已经是「exe 同级的资源修改器」，不可写时才退回 %APPDATA%
+            string dataDir = PvZPlantSwap.Core.PlantSwap.DataDir;
+            MigrateFromAppData(dataDir);
+            string nativeDir = System.IO.Path.Combine(dataDir, "native");
             System.IO.Directory.CreateDirectory(nativeDir);
             var asm = typeof(Program).Assembly;
             foreach (var name in new[] { "SDL2.dll", "soft_oal.dll" })

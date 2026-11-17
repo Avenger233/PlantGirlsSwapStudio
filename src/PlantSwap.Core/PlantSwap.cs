@@ -53,7 +53,10 @@ public static class PlantSwap
         "gold", "silver", "note", "mail", "almanac", "store", "award", "ui"
     };
 
-    /// <summary>数据目录：%APPDATA%\PvZPlantSwap（无 APPDATA 时退回程序目录）。</summary>
+    /// <summary>
+    /// 数据目录：优先 exe 同级的「资源修改器」目录（跟备份、Mod、ini 放一起），
+    /// 该位置不可写时退回 %APPDATA%\PvZPlantSwap。
+    /// </summary>
     public static string DataDir { get; }
 
     /// <summary>备份根目录，默认 %APPDATA%\PvZPlantSwap\backup；设为非空可覆盖（测试用）。</summary>
@@ -67,10 +70,27 @@ public static class PlantSwap
 
     static PlantSwap()
     {
+        // 优先生成在 exe 同级的工具目录里，跟备份/Mod/ini 放一起
+        var beside = Path.Combine(AppContext.BaseDirectory, "资源修改器");
+        if (CanWrite(beside)) { DataDir = beside; return; }
+
         var appdata = Environment.GetEnvironmentVariable("APPDATA");
         if (string.IsNullOrEmpty(appdata)) appdata = AppContext.BaseDirectory;
         DataDir = Path.Combine(appdata!, "PvZPlantSwap");
         try { Directory.CreateDirectory(DataDir); } catch { /* 只读环境下忽略 */ }
+    }
+
+    static bool CanWrite(string dir)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var probe = Path.Combine(dir, ".write-test");
+            File.WriteAllText(probe, "1");
+            File.Delete(probe);
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>小写并只保留字母/数字。对应 Python norm()。</summary>
