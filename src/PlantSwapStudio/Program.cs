@@ -1142,6 +1142,8 @@ namespace PlantSwap.App
             else if (!string.IsNullOrEmpty(key)) label = CnNames.DisplayName(_names, key);
             else label = "（未选择）";
             ImGui.SetNextItemWidth(330);
+            // 固定弹窗大小：否则每帧内容变化时弹窗不跟着长，只能看到 6 行
+            ImGui.SetNextWindowSize(new System.Numerics.Vector2(360, 360), ImGuiCond.Always);
             if (ImGui.BeginCombo(id, label))
             {
                 // 筛选框就在下拉里：打开即聚焦，输入即过滤本列表
@@ -1266,6 +1268,7 @@ namespace PlantSwap.App
             ImGui.Text("选择（" + _watchDisp.Length + "）");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(260);
+            ImGui.SetNextWindowSize(new System.Numerics.Vector2(360, 360), ImGuiCond.Always);
             string wlabel = string.IsNullOrEmpty(_watchKey) ? "（未选择）"
                           : (IsZombieKey(_watchKey) ? ZombieLabel(_watchKey) : CnNames.DisplayName(_names, _watchKey));
             if (ImGui.BeginCombo("##watchsel", wlabel))
