@@ -50,6 +50,7 @@ namespace PlantSwap.App
             if (an == null) return;
             _state.SetAnimation(0, name, loop);
             _animDuration = Math.Max(an.Duration, 0.05f);
+            _userPlayed = true;
             _fit = 0;
         }
 
@@ -123,6 +124,7 @@ namespace PlantSwap.App
                 if (anim != null) { _state.SetAnimation(0, anim.Name, true); _animDuration = Math.Max(anim.Duration, 0.05f); }
 
                 _fit = 0f; _fitW = _fitH = 0;
+                _userPlayed = false;
                 Zoom = 1f; Pan = Vector2.Zero; Time = 0; Paused = false;
                 PlantKey = key; Error = null;
             }
@@ -132,12 +134,17 @@ namespace PlantSwap.App
             }
         }
 
+        bool _userPlayed;   // 用户手动播过动作：不要再被 setup pose 覆盖
+
         /// <summary>兜底测量：用 setup pose 的骨架包围盒（记得先把缩放还原成 1，否则会量小）。</summary>
         void MeasureBoundsFallback()
         {
-            // 测不准的素材（萝丝那种：只有一个带位移的特效动作）→ 先停在 setup pose，
-            // 这样画面是完整立绘；用户点「播放」时会重新设上动作再动。
-            try { _state?.ClearTracks(); _skel?.SetToSetupPose(); } catch { }
+            // 测不准的素材（萝丝那种：只有一个带位移的特效动作）→ 先停在 setup pose 让构图好看；
+            // 但用户点过「播放」（_userPlayed）之后就不能再清，否则每帧把动作又抹掉。
+            if (!_userPlayed)
+            {
+                try { _state?.ClearTracks(); _skel?.SetToSetupPose(); } catch { }
+            }
             try
             {
                 _skel.SetToSetupPose();
