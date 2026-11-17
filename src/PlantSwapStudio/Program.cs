@@ -378,13 +378,15 @@ namespace PlantSwap.App
             _imgui = new ImGuiRenderer(this);
             Program.InstallClipboard();
             var io = ImGui.GetIO();
+            BootMark("before font");
             string fp = @"C:\Windows\Fonts\msyh.ttc";
             if (!File.Exists(fp)) fp = @"C:\Windows\Fonts\simhei.ttf";
             if (File.Exists(fp))
-                // 常用汉字范围（约 2500 字）比 ChineseFull（2 万多字）建图集快得多，
-                // 界面文字 + 植物名都在这个范围内；真遇到生僻字会显示成方框，但启动快一截。
-                io.Fonts.AddFontFromFileTTF(fp, 19f, IntPtr.Zero, io.Fonts.GetGlyphRangesChineseSimplifiedCommon());
+                // 必须用全中文范围：常用字库会漏字（香蒲、火焰菇 这些植物名就显示成方框）
+                io.Fonts.AddFontFromFileTTF(fp, 19f, IntPtr.Zero, io.Fonts.GetGlyphRangesChineseFull());
+            BootMark("font added");
             _imgui.RebuildFontAtlas();
+            BootMark("font atlas rebuilt");
             try
             {
                 var ip2 = Path.Combine(CoreSwap.DataDir, "icon.png");
