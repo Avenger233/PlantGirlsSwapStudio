@@ -970,6 +970,19 @@ namespace PlantSwap.App
                 _rectB = new Rectangle(12 + halfW + 12, top + 30, halfW, mid - 30);
             }
 
+            // 替换 / 互换：A、B 用同一个比例，两边的相对大小跟游戏里保持一致（观赏和 Mod 各用各的）
+            if ((_mode == 0 || _mode == 1) && _pvA.Ready && _pvB.Ready)
+            {
+                _pvA.EnsureFit(_rectA.Width, _rectA.Height);
+                _pvB.EnsureFit(_rectB.Width, _rectB.Height);
+                _pvA.SharedScale = _pvB.SharedScale = Math.Min(_pvA.FitScale, _pvB.FitScale);
+            }
+            else
+            {
+                _pvA.SharedScale = 0f;
+                if (_pvB != null) _pvB.SharedScale = 0f;
+            }
+
             bool useSpineA = _portraitMode && _pvA.Ready && !_rvZombie;
             bool useReanimA = !useSpineA && ReanimVisible;
             bool useSpineB = (_mode == 0 || _mode == 1) && _portraitMode && _pvB.Ready;
@@ -1728,7 +1741,11 @@ namespace PlantSwap.App
             {
                 ImGui.SameLine();
                 ImGui.TextDisabled($"zoom {pv.Zoom:F2}x");
-                if (pv.OnlyEffectAnimations) { ImGui.SameLine(); ImGui.TextDisabled("（该素材只有特效动作，已定格；想看动作在「动作」里选）"); }
+                if (pv.OnlyEffectAnimations && _mode == 2)
+                {
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("（该素材只有特效动作，已定格；想看动作在「动作」里选）");
+                }
                 if (Program.DebugOn) { ImGui.SameLine(); ImGui.TextDisabled("| " + pv.FitInfo); }
             }
             ImGui.End();
