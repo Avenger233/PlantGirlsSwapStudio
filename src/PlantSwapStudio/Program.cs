@@ -759,6 +759,7 @@ namespace PlantSwap.App
         int _frames; bool _iconDone;
         IntPtr _hwnd; float _imeProbe;
         System.Numerics.Vector2 _imeAnchor;      // 候选窗锚点（输入框左下角）
+        System.Numerics.Vector2 _imeBoxMin, _imeBoxMax, _imeCandMin, _imeCandMax;
         bool _imeAnchorSet;
         float _imeLastX = float.NaN, _imeLastY = float.NaN;
 
@@ -785,6 +786,7 @@ namespace PlantSwap.App
             if (!ImGui.IsItemActive()) return;
             var mn = ImGui.GetItemRectMin();
             var mx = ImGui.GetItemRectMax();
+            _imeBoxMin = mn; _imeBoxMax = mx;
             _imeAnchor = new System.Numerics.Vector2(mn.X, mx.Y + 4);
             _imeAnchorSet = true;
         }
@@ -1048,6 +1050,21 @@ namespace PlantSwap.App
                 _imeCache = null;
                 TsfIme.Clear();   // 组合结束，候选也一起收掉
             }
+            // 点输入框和候选窗以外的地方就结束组合，否则候选会一直挂在那儿
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+            {
+                var mp = io.MousePos;
+                bool inBox = mp.X >= _imeBoxMin.X - 2 && mp.X <= _imeBoxMax.X + 2 && mp.Y >= _imeBoxMin.Y - 2 && mp.Y <= _imeBoxMax.Y + 2;
+                bool inCand = mp.X >= _imeCandMin.X - 4 && mp.X <= _imeCandMax.X + 4 && mp.Y >= _imeCandMin.Y - 4 && mp.Y <= _imeCandMax.Y + 4;
+                if (!inBox && !inCand)
+                {
+                    if (hwnd != IntPtr.Zero) Program.CancelComposition(hwnd);
+                    TsfIme.Clear();
+                    _imeCache = null;
+                    return;
+                }
+            }
+
             var cur = _imeCache;
             if (cur == null || !cur.Active) return;
 
@@ -1080,6 +1097,7 @@ namespace PlantSwap.App
             float hCand = pageCount * (lh + 4);
             var bg0 = new System.Numerics.Vector2(p.X - 6, p.Y - 4);
             var bg1 = new System.Numerics.Vector2(p.X + w + 12, p.Y + hCompose + hCand + 4);
+            _imeCandMin = bg0; _imeCandMax = bg1;
             dl.AddRectFilled(bg0, bg1, 0xF2141414u, 5f);
             dl.AddRect(bg0, bg1, 0xFF6FA8D8u, 5f);
 
