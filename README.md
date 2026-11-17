@@ -138,6 +138,7 @@ docs/                   构建、架构、格式说明
 - [reanim (.xnb) 格式](docs/REANIM-FORMAT.md)
 - [Spine 立绘渲染要点](docs/SPINE-RENDERING.md)
 - [常见问题](docs/FAQ.md)
+- [发布到 GitHub](docs/PUBLISHING.md)
 
 ## 已知限制
 

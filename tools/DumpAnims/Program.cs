@@ -14,7 +14,13 @@ static class Program
 {
     static void Main(string[] args)
     {
-        string dir = args.Length > 0 ? args[0] : @"D:\Program Files\ZBC\PlantGirlsVsZombies\Content\spanim";
+        if (args.Length == 0)
+        {
+            Console.WriteLine("用法: DumpAnims <Content/spanim 目录>");
+            Console.WriteLine("作用: 导出全部 Spine 骨骼的动作名，用来核对 AnimCn 里的中文动作表。");
+            return;
+        }
+        var dir = args[0];
         var all = new SortedDictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var skel in Directory.GetFiles(dir, "*.skel").OrderBy(x => x))

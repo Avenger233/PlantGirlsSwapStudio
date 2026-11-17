@@ -8,7 +8,8 @@ using PvZPlantSwap.Core;
 
 internal static class Program
 {
-    private const string DefaultReanimDir = @"D:\Program Files\ZBC\PlantGirlsVsZombies\Content\reanim";
+    // 不写死任何人的安装路径：目录必须由命令行 --dir 指定，或按下面的参数猜
+    private const string DefaultReanimDir = "";
 
     private static int Main(string[] args)
     {
@@ -42,6 +43,13 @@ internal static class Program
                     files.Add(args[i]);
                     break;
             }
+        }
+
+        if (string.IsNullOrEmpty(dir) && files.Count == 0)
+        {
+            Console.Error.WriteLine("请用 --dir <Content/reanim 目录> 指定 reanim 目录，或直接把 .xnb 路径作为参数。");
+            PrintUsage();
+            return 2;
         }
 
         if (verify) return Verify(dir);
