@@ -120,6 +120,15 @@ namespace PlantSwap.App
                         else if (k.Equals("modSel", StringComparison.OrdinalIgnoreCase)) _modSelDir = v;
                     }
                     else if (sec == "folders" && _folders.ContainsKey(k)) _folders[k] = v == "1";
+                    else if (sec == "views")
+                    {
+                        var parts = v.Split(',');
+                        if (parts.Length == 3
+                            && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var z)
+                            && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var px)
+                            && float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var py))
+                            _plantView[k] = new[] { z, px, py };
+                    }
                 }
             }
             catch { }
@@ -151,6 +160,16 @@ namespace PlantSwap.App
                 sb.AppendLine("modSel=" + _modSelDir);
                 sb.AppendLine("[folders]");
                 foreach (var kv in _folders) sb.AppendLine(kv.Key + "=" + (kv.Value ? "1" : "0"));
+                if (_plantView.Count > 0)
+                {
+                    sb.AppendLine("[views]");
+                    foreach (var kv in _plantView)
+                    {
+                        var v = kv.Value;
+                        if (Math.Abs(v[0] - 1f) < 0.001f && Math.Abs(v[1]) < 0.5f && Math.Abs(v[2]) < 0.5f) continue;
+                        sb.AppendLine(kv.Key + "=" + v[0].ToString("F3") + "," + v[1].ToString("F1") + "," + v[2].ToString("F1"));
+                    }
+                }
                 File.WriteAllText(CfgPath, sb.ToString());
             }
             catch { }
@@ -479,6 +498,26 @@ namespace PlantSwap.App
         string _logText = "";
         bool _logScrollBottom;
         bool _logFocused;  // 日志文本框这一帧是否有焦点/鼠标在里面；Ctrl+C 只在此时复制日志
+
+        // 每株植物记住自己的构图（缩放/平移）：自动测量靠不住的素材，用户调一次就永久生效
+        readonly Dictionary<string, float[]> _plantView = new();
+        string _lastViewA, _lastViewB;
+
+        void TrackPlantView(string key, SpinePreview pv, ref string lastKey)
+        {
+            if (string.IsNullOrEmpty(key) || pv == null || !pv.Ready) { lastKey = null; return; }
+            if (lastKey != key)
+            {
+                lastKey = key;
+                if (_plantView.TryGetValue(key, out var v))
+                {
+                    pv.Zoom = v[0];
+                    pv.Pan = new Vector2(v[1], v[2]);
+                }
+                return;
+            }
+            _plantView[key] = new[] { pv.Zoom, pv.Pan.X, pv.Pan.Y };
+        }
 
         void ReloadGame()
         {
@@ -1014,6 +1053,10 @@ namespace PlantSwap.App
             _imgui.BeforeLayout(gameTime);
             _imeAnchorFresh = false;
             BuildUi(w, h, top, bottom);
+
+            // 记录/恢复每株植物自己的构图
+            TrackPlantView(_mode == 2 ? _watchKey : _keyA, _pvA, ref _lastViewA);
+            TrackPlantView(_keyB, _pvB, ref _lastViewB);
 
             // ImGui 的 Ctrl+C 快捷键在这套后端里不触发，这里自己补一份：
             // 但只有「日志框正被编辑」时才复制日志，别的地方按 Ctrl+C 不要抢
