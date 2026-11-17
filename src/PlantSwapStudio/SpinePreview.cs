@@ -135,6 +135,9 @@ namespace PlantSwap.App
         /// <summary>兜底测量：用 setup pose 的骨架包围盒（记得先把缩放还原成 1，否则会量小）。</summary>
         void MeasureBoundsFallback()
         {
+            // 测不准的素材（萝丝那种：只有一个带位移的特效动作）→ 先停在 setup pose，
+            // 这样画面是完整立绘；用户点「播放」时会重新设上动作再动。
+            try { _state?.ClearTracks(); _skel?.SetToSetupPose(); } catch { }
             try
             {
                 _skel.SetToSetupPose();
