@@ -1842,15 +1842,19 @@ namespace PlantSwap.App
         static void PrepEnvironment()
         {
             string dataDir = PvZPlantSwap.Core.PlantSwap.DataDir;
-            // 原生 dll 放到「游戏目录 / 资源修改器 / native」，跟备份、Mod、ini 放一起；
-            // 猜不到游戏目录时退回 %APPDATA% 下的工具目录
+            // 原生 dll 直接放在 exe 同级的「资源修改器 / native」，跟备份、Mod、ini 放一起。
+            // 只有 exe 目录不可写（例如装在 Program Files 且没权限）时才退回 %APPDATA%。
             string toolDir = dataDir;
             try
             {
-                var game = PvZPlantSwap.Core.PlantSwap.GuessGame();
-                if (!string.IsNullOrEmpty(game)) toolDir = System.IO.Path.Combine(game, "资源修改器");
+                var beside = System.IO.Path.Combine(AppContext.BaseDirectory, "资源修改器");
+                System.IO.Directory.CreateDirectory(beside);
+                var probe = System.IO.Path.Combine(beside, ".write-test");
+                System.IO.File.WriteAllText(probe, "1");
+                System.IO.File.Delete(probe);
+                toolDir = beside;
             }
-            catch { }
+            catch { toolDir = dataDir; }
             string nativeDir = System.IO.Path.Combine(toolDir, "native");
             System.IO.Directory.CreateDirectory(nativeDir);
             var asm = typeof(Program).Assembly;

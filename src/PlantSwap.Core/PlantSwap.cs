@@ -24,17 +24,11 @@ public static class PlantSwap
     /// </summary>
     public static string GuessGame()
     {
-        var starts = new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() };
-        foreach (var s in starts)
-        {
-            if (string.IsNullOrEmpty(s)) continue;
-            var d = s.TrimEnd(Path.DirectorySeparatorChar);
-            for (var i = 0; i < 3 && !string.IsNullOrEmpty(d); i++)
-            {
-                if (FindContent(d) is not null) return d;
-                d = Path.GetDirectoryName(d);
-            }
-        }
+        // 不做启发式搜索：工具就是放在游戏目录里跑的，exe 在哪就以哪为游戏目录。
+        var exeDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+        if (!string.IsNullOrEmpty(exeDir) && FindContent(exeDir) is not null) return exeDir;
+        var cwd = Directory.GetCurrentDirectory().TrimEnd(Path.DirectorySeparatorChar);
+        if (!string.IsNullOrEmpty(cwd) && FindContent(cwd) is not null) return cwd;
         return "";
     }
 
