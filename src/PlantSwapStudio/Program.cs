@@ -1803,10 +1803,59 @@ namespace PlantSwap.App
             return sb.ToString();
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+
+        /// <summary>
+        /// 工具必须和 Lawn.exe 放在一起（要读 Content）。没放对就先弹一句人话，
+        /// 免得用户看到空列表以为是程序坏了。
+        /// </summary>
+        static bool CheckGameDirOrWarn()
+        {
+            try
+            {
+                if (PvZPlantSwap.Core.PlantSwap.FindContent(AppContext.BaseDirectory) != null) return true;
+
+                // 已经配置过有效目录的（比如把 exe 放在别处但手动指过路）就不再烦他
+                try
+                {
+                    var sj = System.IO.Path.Combine(PvZPlantSwap.Core.PlantSwap.DataDir, "studio.json");
+                    if (System.IO.File.Exists(sj))
+                    {
+                        var txt = System.IO.File.ReadAllText(sj);
+                        int i = txt.IndexOf("\"game\"", StringComparison.Ordinal);
+                        if (i >= 0)
+                        {
+                            int c = txt.IndexOf(':', i);
+                            int q1 = txt.IndexOf('"', c);
+                            int q2 = txt.IndexOf('"', q1 + 1);
+                            if (q1 > 0 && q2 > q1)
+                            {
+                                var g = txt.Substring(q1 + 1, q2 - q1 - 1).Replace("\\\\", "\\");
+                                if (PvZPlantSwap.Core.PlantSwap.FindContent(g) != null) return true;
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                const uint MB_OKCANCEL = 0x1, MB_ICONWARNING = 0x30, MB_SETFOREGROUND = 0x10000;
+                int r = MessageBoxW(IntPtr.Zero,
+                    "请把「资源修改器.exe」放到游戏根目录（和 Lawn.exe 同一个文件夹）再运行。\n\n" +
+                    "程序需要读取游戏目录下的 Content 资源。\n\n" +
+                    "点「确定」仍可继续，进去后在顶栏手动选择游戏目录；\n点「取消」直接退出。",
+                    "资源修改器 · 放错位置了",
+                    MB_OKCANCEL | MB_ICONWARNING | MB_SETFOREGROUND);
+                return r != 2;   // IDCANCEL = 2
+            }
+            catch { return true; }
+        }
+
         [STAThread]
         static void Main()
         {
-            PrepEnvironment();                                        // 先把 SDL2.dll 解出来/加载好
+            PrepEnvironment();
+            if (!CheckGameDirOrWarn()) return;                                        // 先把 SDL2.dll 解出来/加载好
             try { SDL_SetHint("SDL_IME_SHOW_UI", "1"); } catch (Exception e) { LogIme("SetHint ex " + e.Message); }
             try
             {
