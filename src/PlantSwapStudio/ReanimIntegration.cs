@@ -289,7 +289,7 @@ namespace PlantSwap.App
             Tip("只显示某一套配件：路障 / 铁桶 / 旗子 / 纱门 / 鸭子圈…（全选会套一身，默认不显示）");
 
             ImGui.SameLine();
-            ImGui.Checkbox("暂停动画", ref _paused);
+            if (ImGui.Button(_paused ? "播放" : "暂停")) _paused = !_paused;
             ImGui.SameLine();
             if (ImGui.Button("复位视图")) { _rvA.Zoom = 1f; _rvA.Pan = Vector2.Zero; }
             ImGui.SameLine();
@@ -335,7 +335,7 @@ namespace PlantSwap.App
             bool acc = _rvA.ShowAccessories;
             if (ImGui.Checkbox("显示配件", ref acc)) _rvA.ShowAccessories = acc;
             ImGui.SameLine();
-            ImGui.Checkbox("暂停动画", ref _paused);
+            if (ImGui.Button(_paused ? "播放" : "暂停")) _paused = !_paused;
             ImGui.SameLine();
             if (ImGui.Button("复位视图")) { _rvA.Zoom = 1f; _rvA.Pan = Vector2.Zero; }
             ImGui.SameLine();
