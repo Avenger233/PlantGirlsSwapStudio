@@ -9,10 +9,10 @@
 **需要退出游戏吗？**
 需要。资源在启动/进关时加载，运行中改文件不生效，还可能被占用写不进去。
 
-**用 QQ 输入法时看不到候选词？**
-QQ 输入法 / 搜狗这类 TSF 输入法把候选放在 TSF 里，IMM 的 ImmGetCandidateList 对它们返回 0 条
-（实测 dwCount=0），程序拿不到候选，只能显示拼音。换成微软拼音（走 IMM）候选就正常。
-要在 QQ 上也显示候选，需要把程序做成完整的 TSF 文本服务，暂未实现。
+**输入法候选窗怎么来的？**
+Windows 10 起微软拼音 / QQ 输入法 / 搜狗都是 TSF 输入法，候选只经 ITfCandidateListUIElement 暴露
+（IMM 的 ImmGetCandidateList 对它们返回 dwCount=0）。程序挂了一个 ITfUIElementSink 旁听
+候选列表，然后在输入框下面自己画候选窗——所以不依赖系统候选窗，也不挑输入法。
 
 **启动时弹「放错位置了」怎么办？**
 工具要和 Lawn.exe 放在同一个文件夹（游戏根目录），它要读同级的 Content。

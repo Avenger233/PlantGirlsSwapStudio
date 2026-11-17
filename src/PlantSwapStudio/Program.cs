@@ -852,6 +852,8 @@ namespace PlantSwap.App
             {
                 var hw = FindMyHwnd();
                 Program.EnsureTextInput();
+                TsfIme.Init();
+                if (Program.DebugOn) Program.LogIme("tsf " + TsfIme.Error);
                 Program.LogIme("startup " + Program.DumpIme(hw).Replace("\r\n", " | ").Replace("\n", " | "));
             }
             ProbeIme();
@@ -1012,6 +1014,7 @@ namespace PlantSwap.App
                     // 丢焦点：把还挂着的组合取消掉，否则点回来会卡住
                     if (hwnd != IntPtr.Zero) Program.CancelComposition(hwnd);
                     _imeCache = null;
+                    TsfIme.Clear();
                 }
                 _imeAnchorSet = false; _imeLastX = _imeLastY = float.NaN;
                 return;
@@ -1040,23 +1043,39 @@ namespace PlantSwap.App
                     _imeCacheAt = gameTimeSeconds;
                 }
             }
-            if (_imeCache != null && gameTimeSeconds - _imeCacheAt > 0.35) _imeCache = null;   // 0.35s 内保持上一帧，消抖
+            if (_imeCache != null && gameTimeSeconds - _imeCacheAt > 0.35)
+            {
+                _imeCache = null;
+                TsfIme.Clear();   // 组合结束，候选也一起收掉
+            }
             var cur = _imeCache;
             if (cur == null || !cur.Active) return;
+
+            // TSF 输入法（微软拼音 / QQ / 搜狗）的候选从 TSF sink 拿；
+            // 老式 IMM 输入法才用 ReadIme 里的那份。
+            List<string> tsfCand = null;
+            int tsfSel = -1;
+            if (TsfIme.HasCandidates)
+            {
+                lock (TsfIme.Cand) { tsfCand = new List<string>(TsfIme.Cand); tsfSel = TsfIme.Sel; }
+            }
 
             var dl = ImGui.GetForegroundDrawList();
             float lh = ImGui.GetTextLineHeight();
             var p = _imeAnchorSet ? _imeAnchor : new System.Numerics.Vector2(io.MousePos.X, io.MousePos.Y + 26);
 
             string comp = cur.Comp ?? "";
-            int pageStart = Math.Max(0, cur.PageStart);
-            int remain = Math.Max(0, cur.Cand.Count - pageStart);
-            int pageCount = cur.PageSize > 1 ? cur.PageSize : Math.Min(9, remain);
+            var cands = tsfCand ?? cur.Cand;
+            int sel = tsfCand != null ? tsfSel : cur.Sel;
+            int pageStart = tsfCand != null ? 0 : Math.Max(0, cur.PageStart);
+            int remain = Math.Max(0, cands.Count - pageStart);
+            int pageCount = tsfCand != null ? Math.Min(9, remain)
+                          : (cur.PageSize > 1 ? cur.PageSize : Math.Min(9, remain));
 
             // 先量一遍总宽高，铺一层底，免得候选字和下拉列表糊在一起
             float w = Math.Max(ImGui.CalcTextSize(comp).X, 120f);
-            for (int i = 0; i < pageCount && pageStart + i < cur.Cand.Count; i++)
-                w = Math.Max(w, ImGui.CalcTextSize((i + 1) + "  " + cur.Cand[pageStart + i]).X);
+            for (int i = 0; i < pageCount && pageStart + i < cands.Count; i++)
+                w = Math.Max(w, ImGui.CalcTextSize((i + 1) + "  " + cands[pageStart + i]).X);
             float hCompose = comp.Length > 0 ? lh + 8 : 0f;
             float hCand = pageCount * (lh + 4);
             var bg0 = new System.Numerics.Vector2(p.X - 6, p.Y - 4);
@@ -1070,14 +1089,14 @@ namespace PlantSwap.App
                 p.Y += lh + 8;
             }
 
-            for (int i = 0; i < pageCount && pageStart + i < cur.Cand.Count; i++)
+            for (int i = 0; i < pageCount && pageStart + i < cands.Count; i++)
             {
-                string item = (i + 1) + "  " + cur.Cand[pageStart + i];
+                string item = (i + 1) + "  " + cands[pageStart + i];
                 var sz = ImGui.CalcTextSize(item);
-                bool sel = (pageStart + i) == cur.Sel;
+                bool isSel = (pageStart + i) == sel;
                 var a = new System.Numerics.Vector2(p.X - 2, p.Y - 1);
                 var b = new System.Numerics.Vector2(p.X + Math.Max(sz.X, w) + 4, p.Y + lh + 2);
-                if (sel) dl.AddRectFilled(a, b, 0xFF2A5C8Fu, 3f);
+                if (isSel) dl.AddRectFilled(a, b, 0xFF2A5C8Fu, 3f);
                 dl.AddText(p, 0xFFEAF2FFu, item);
                 p.Y += lh + 4;
             }
