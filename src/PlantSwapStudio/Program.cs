@@ -760,7 +760,7 @@ namespace PlantSwap.App
         IntPtr _hwnd; float _imeProbe;
         System.Numerics.Vector2 _imeAnchor;      // 候选窗锚点（输入框左下角）
         System.Numerics.Vector2 _imeBoxMin, _imeBoxMax, _imeCandMin, _imeCandMax;
-        bool _imeAnchorSet;
+        bool _imeAnchorSet, _imeAnchorFresh;
         float _imeLastX = float.NaN, _imeLastY = float.NaN;
 
         IntPtr FindMyHwnd()
@@ -789,6 +789,7 @@ namespace PlantSwap.App
             _imeBoxMin = mn; _imeBoxMax = mx;
             _imeAnchor = new System.Numerics.Vector2(mn.X, mx.Y + 4);
             _imeAnchorSet = true;
+            _imeAnchorFresh = true;
         }
 
         void ProbeIme()
@@ -840,6 +841,7 @@ namespace PlantSwap.App
         {
             // 标题只在需要时补一次（SDL 建窗前设不进去）
             if (Window.Title != TitleText) { try { Window.Title = TitleText; } catch { } }
+            Program.PumpDeferredEsc();
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
             _fpsAcc += dt; _fpsFrames++;
             if (_fpsAcc >= 0.5f)
@@ -962,6 +964,7 @@ namespace PlantSwap.App
             }
 
             _imgui.BeforeLayout(gameTime);
+            _imeAnchorFresh = false;
             BuildUi(w, h, top, bottom);
             UpdateImeRect();
             DrawImeOverlay();
@@ -1002,18 +1005,26 @@ namespace PlantSwap.App
         /// </summary>
         // 候选窗缓存：QQ拼音这类 TSF 输入法偶尔会闪一帧空数据，直接缓存住就不闪了
         Program.ImeState2 _imeCache;
-        double _imeCacheAt, _imeReadAt;
+        double _imeCacheAt, _imeReadAt, _tsfPollAt;
         string _imeLoggedComp;
 
         void DrawImeOverlay()
         {
             var io = ImGui.GetIO();
             var hwnd = FindMyHwnd();
+            if (io.WantTextInput) Program.EnsureTextInput();   // 焦点回到输入框时重新开始文本输入
+            if (ImGui.IsKeyPressed(ImGuiKey.Escape) && hwnd != IntPtr.Zero)
+            {
+                Program.CancelComposition(hwnd);   // Esc 结束输入法组合（TSF 只认真实按键）
+                TsfIme.Clear();
+                _imeCache = null;
+            }
             if (!io.WantTextInput)
             {
-                if (_imeCache != null)
+                if (_imeCache != null || TsfIme.HasCandidates)
                 {
-                    // 丢焦点：把还挂着的组合取消掉，否则点回来会卡住
+                    // 丢焦点：停掉 SDL 文本输入（输入法随之丢组合）+ 补一记 Esc
+                    Program.StopTextInput();
                     if (hwnd != IntPtr.Zero) Program.CancelComposition(hwnd);
                     _imeCache = null;
                     TsfIme.Clear();
@@ -1058,12 +1069,16 @@ namespace PlantSwap.App
                 bool inCand = mp.X >= _imeCandMin.X - 4 && mp.X <= _imeCandMax.X + 4 && mp.Y >= _imeCandMin.Y - 4 && mp.Y <= _imeCandMax.Y + 4;
                 if (!inBox && !inCand)
                 {
+                    Program.StopTextInput();
                     if (hwnd != IntPtr.Zero) Program.CancelComposition(hwnd);
                     TsfIme.Clear();
                     _imeCache = null;
                     return;
                 }
             }
+
+            // 输入框这一帧没被激活（比如点了别处），就别画：否则候选窗会飘在窗口左上角
+            if (!_imeAnchorSet || !_imeAnchorFresh) return;
 
             var cur = _imeCache;
             if (cur == null || !cur.Active) return;
@@ -1072,6 +1087,11 @@ namespace PlantSwap.App
             // 老式 IMM 输入法才用 ReadIme 里的那份。
             List<string> tsfCand = null;
             int tsfSel = -1;
+            if (!TsfIme.HasCandidates && !string.IsNullOrEmpty(cur.Comp) && gameTimeSeconds - _tsfPollAt > 0.2)
+            {
+                _tsfPollAt = gameTimeSeconds;
+                TsfIme.Poll();   // 组合被挂起后 BeginUIElement 不再回调，主动枚举一次
+            }
             if (TsfIme.HasCandidates)
             {
                 lock (TsfIme.Cand) { tsfCand = new List<string>(TsfIme.Cand); tsfSel = TsfIme.Sel; }
@@ -1601,6 +1621,9 @@ namespace PlantSwap.App
         [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
         static extern void SDL_StartTextInput();
 
+        [System.Runtime.InteropServices.DllImport("SDL2.dll")]
+        static extern void SDL_StopTextInput();
+
         [System.Runtime.InteropServices.DllImport("SDL2.dll", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
         static extern bool SDL_IsTextInputActive();
 
@@ -1650,16 +1673,76 @@ namespace PlantSwap.App
         internal const int CPS_CANCEL = 0x0000;
 
         /// <summary>结束当前组合（丢焦点时调用，否则组合会一直挂着，再点回来就卡住）。</summary>
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct KEYBDINPUT
+        {
+            public ushort wVk, wScan;
+            public uint dwFlags, time;
+            public IntPtr dwExtraInfo;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit)]
+        struct INPUT
+        {
+            [System.Runtime.InteropServices.FieldOffset(0)] public uint type;
+            [System.Runtime.InteropServices.FieldOffset(8)] public KEYBDINPUT ki;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr GetForegroundWindow();
+
+        const uint INPUT_KEYBOARD = 1, KEYEVENTF_KEYUP = 0x0002;
+        const int VK_ESCAPE = 0x1B;
+
+        /// <summary>
+        /// 用 SendInput 敲一记真实的 Esc。PostMessage 那条路输入法不认，
+        /// 只有走系统输入队列它才会结束组合。
+        /// </summary>
+        static void SendEscKey()
+        {
+            if (GetForegroundWindow() == IntPtr.Zero) return;
+            try
+            {
+                var down = new INPUT { type = INPUT_KEYBOARD };
+                down.ki.wVk = VK_ESCAPE;
+                var up = new INPUT { type = INPUT_KEYBOARD };
+                up.ki.wVk = VK_ESCAPE;
+                up.ki.dwFlags = KEYEVENTF_KEYUP;
+                SendInput(2, new[] { down, up }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 结束当前组合。IMM 的 CPS_CANCEL 只对老式输入法有效，
+        /// TSF 输入法（微软拼音/QQ/搜狗）不认，所以补一记 Esc 让它自己收起来。
+        /// </summary>
         internal static void CancelComposition(IntPtr hwnd)
         {
             try
             {
                 var imc = ImmGetContext(hwnd);
-                if (imc == IntPtr.Zero) return;
-                try { ImmNotifyIME(imc, NI_COMPOSITIONSTR, CPS_CANCEL, 0); }
-                finally { ImmReleaseContext(hwnd, imc); }
+                if (imc != IntPtr.Zero)
+                {
+                    try { ImmNotifyIME(imc, NI_COMPOSITIONSTR, CPS_CANCEL, 0); }
+                    finally { ImmReleaseContext(hwnd, imc); }
+                }
             }
             catch { }
+
+            LogIme("cancel composition");
+            _escPending = 3;   // 延后几帧再发：在消息处理中直接 SendInput 会被吞掉
+        }
+
+        static int _escPending;
+
+        internal static void PumpDeferredEsc()
+        {
+            if (_escPending <= 0) return;
+            if (--_escPending == 0) SendEscKey();
         }
 
         [System.Runtime.InteropServices.DllImport("imm32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -1917,6 +2000,15 @@ namespace PlantSwap.App
         internal static void EnsureTextInput()
         {
             try { SDL_StartTextInput(); } catch (Exception e) { LogIme("StartTextInput ex " + e.Message); }
+        }
+
+        /// <summary>
+        /// 停掉 SDL 的文本输入：它会连带把输入法上下文解除关联，
+        /// TSF 输入法这时才会丢掉还挂着的组合（否则再点回来会接着 "ni" 继续拼）。
+        /// </summary>
+        internal static void StopTextInput()
+        {
+            try { SDL_StopTextInput(); LogIme("stop text input"); } catch (Exception e) { LogIme("StopTextInput ex " + e.Message); }
         }
 
         /// <summary>老版本把配置/图标放 %APPDATA%，搬到新目录时顺手带过来，别让用户重配。</summary>

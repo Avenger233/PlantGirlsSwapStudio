@@ -39,7 +39,7 @@ namespace PlantSwap.App
             [PreserveSig] int UpdateUIElement(uint dwUIElementId);
             [PreserveSig] int EndUIElement(uint dwUIElementId);
             [PreserveSig] int GetUIElement(uint dwUIElementId, out ITfUIElement ppElement);
-            [PreserveSig] int EnumUIElements(IntPtr ppEnum);
+            [PreserveSig] int EnumUIElements(out IEnumTfUIElements ppEnum);
         }
 
         [ComImport]
@@ -81,6 +81,18 @@ namespace PlantSwap.App
             [PreserveSig] int BeginUIElement(uint dwUIElementId, ref int pbShow);
             [PreserveSig] int UpdateUIElement(uint dwUIElementId);
             [PreserveSig] int EndUIElement(uint dwUIElementId);
+        }
+
+        // msctf.h: Clone, Next, Reset, Skip
+        [ComImport]
+        [Guid("887AA91E-ACBA-4931-84DA-3C5208CF543F")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IEnumTfUIElements
+        {
+            [PreserveSig] int Clone(out IEnumTfUIElements ppEnum);
+            [PreserveSig] int Next(uint ulCount, out ITfUIElement element, out uint fetched);
+            [PreserveSig] int Reset();
+            [PreserveSig] int Skip(uint ulCount);
         }
 
         sealed class Sink : ITfUIElementSink
@@ -138,6 +150,43 @@ namespace PlantSwap.App
             uint sel;
             cand.GetSelection(out sel);
             lock (Cand) { Cand.Clear(); Cand.AddRange(list); Sel = (int)sel; }
+        }
+
+        /// <summary>
+        /// 兜底：直接枚举当前所有 UI 元素找候选列表。
+        /// 组合被挂起过（比如点过别处）时 BeginUIElement 不会再回调，靠这个补回来。
+        /// </summary>
+        internal static void Poll()
+        {
+            if (_mgr == null) return;
+            try
+            {
+                IEnumTfUIElements en;
+                if (_mgr.EnumUIElements(out en) != 0 || en == null) return;
+                for (int k = 0; k < 8; k++)
+                {
+                    ITfUIElement el;
+                    uint fetched;
+                    if (en.Next(1, out el, out fetched) != 0 || fetched == 0 || el == null) break;
+                    var cand = el as ITfCandidateListUIElement;
+                    if (cand == null) continue;
+                    uint count;
+                    if (cand.GetCount(out count) != 0 || count == 0) continue;
+                    var list = new List<string>();
+                    for (uint i = 0; i < count && i < 64; i++)
+                    {
+                        string s;
+                        if (cand.GetString(i, out s) != 0) break;
+                        list.Add(s ?? "");
+                    }
+                    if (list.Count == 0) continue;
+                    uint sel;
+                    cand.GetSelection(out sel);
+                    lock (Cand) { Cand.Clear(); Cand.AddRange(list); Sel = (int)sel; }
+                    return;
+                }
+            }
+            catch { }
         }
 
         internal static void Clear() { lock (Cand) { Cand.Clear(); Sel = -1; } }
