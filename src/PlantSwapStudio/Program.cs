@@ -117,6 +117,7 @@ namespace PlantSwap.App
                         else if (k.Equals("keyC", StringComparison.OrdinalIgnoreCase)) _watchKey = v;
                         else if (k.Equals("watchTab", StringComparison.OrdinalIgnoreCase)) _watchTab = v == "1" ? 1 : 0;
                         else if (k.Equals("watchScope", StringComparison.OrdinalIgnoreCase)) _watchScope = int.TryParse(v, out var ws) ? Math.Clamp(ws, 0, 2) : 0;
+                        else if (k.Equals("debug", StringComparison.OrdinalIgnoreCase)) Program.DebugIni = v == "1";
                         else if (k.Equals("modSel", StringComparison.OrdinalIgnoreCase)) _modSelDir = v;
                     }
                     else if (sec == "folders" && _folders.ContainsKey(k)) _folders[k] = v == "1";
@@ -157,6 +158,7 @@ namespace PlantSwap.App
                 sb.AppendLine("keyC=" + _watchKey);
                 sb.AppendLine("watchTab=" + _watchTab);
                 sb.AppendLine("watchScope=" + _watchScope);
+                sb.AppendLine("debug=" + (Program.DebugIni ? "1" : "0"));
                 sb.AppendLine("modSel=" + _modSelDir);
                 sb.AppendLine("[folders]");
                 foreach (var kv in _folders) sb.AppendLine(kv.Key + "=" + (kv.Value ? "1" : "0"));
@@ -221,6 +223,9 @@ namespace PlantSwap.App
             MigrateOldLayout();
             LoadIni();
             if (string.IsNullOrEmpty(_gameDir)) _gameDir = CoreSwap.GuessGame();   // 还是找不到就留空，等用户在顶栏填
+            // ini 里的 game= 可能把游戏目录改到别处，配置路径随之变化。
+            // 按新路径再读一次，避免"读 A 存 B"——退出时把另一个位置的配置冲成空表。
+            if (!string.IsNullOrEmpty(_gameDir)) LoadIni();
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
@@ -397,12 +402,17 @@ namespace PlantSwap.App
             _imgui = new ImGuiRenderer(this);
             Program.InstallClipboard();
             var io = ImGui.GetIO();
+            // 布局全是写死的，用不到 imgui.ini。ImGui 只认原生指针，置空 = 不读也不写，
+            // 游戏目录里就不会多出这个文件（ImGui.NET 的托管属性是只读的，只能走 NativePtr）
+            try { unsafe { ((ImGuiIO*)io.NativePtr)->IniFilename = null; } } catch { }
             BootMark("before font");
             string fp = @"C:\Windows\Fonts\msyh.ttc";
             if (!File.Exists(fp)) fp = @"C:\Windows\Fonts\simhei.ttf";
             if (File.Exists(fp))
-                // 必须用全中文范围：常用字库会漏字（香蒲、火焰菇 这些植物名就显示成方框）
-                io.Fonts.AddFontFromFileTTF(fp, 19f, IntPtr.Zero, io.Fonts.GetGlyphRangesChineseFull());
+                // 必须用全中文范围：常用字库会漏字（香蒲、火焰菇 这些植物名就显示成方框）。
+                // 另外 ImGui 自带的中文范围不含箭头区，动作名里的「待机→准备」会渲染成「?」，
+                // 所以这里自己拼一份：中文全量 + 标点 + 箭头 + 圈数字 + 几何图形。
+                io.Fonts.AddFontFromFileTTF(fp, 19f, IntPtr.Zero, Program.GlyphRangePtr);
             BootMark("font added");
             _imgui.RebuildFontAtlas();
             BootMark("font atlas rebuilt");
@@ -519,6 +529,79 @@ namespace PlantSwap.App
             _plantView[key] = new[] { pv.Zoom, pv.Pan.X, pv.Pan.Y };
         }
 
+        const string HeaderPlants =
+            "; 资源修改器 · 植物中文名（可以手改）\r\n" +
+            "; 左边是资源名，不要改；右边是中文名。留空 = 用程序内置的名字。\r\n" +
+            "; 改完保存，回程序点右上角「重新载入」（或重启程序）生效。\r\n\r\n";
+
+        const string HeaderZombies =
+            "; 资源修改器 · 僵尸中文名（可以手改）\r\n" +
+            "; 左边是 reanim 文件名，不要改；右边是中文名。留空 = 用程序内置的名字。\r\n\r\n";
+
+        const string HeaderOthers =
+            "; 资源修改器 · 其他资源组中文名（可以手改）\r\n" +
+            "; 音效 / 粒子 / 贴图这些资源组。左边是资源名，不要改；右边是中文名。\r\n\r\n";
+
+        const string HeaderActions =
+            "; 资源修改器 · 动作中文名（可以手改）\r\n" +
+            "; 左边是 Spine / reanim 里的动作名，不要改；右边是中文名。\r\n\r\n";
+
+        /// <summary>
+        /// 生成 / 更新「&lt;游戏目录&gt;\资源修改器\Language\」下的四个语言文件：
+        /// plants / zombies / others / actions。内置表里已有的名字会一起写进去，用户可以直接改。
+        /// 只追加，不改写用户已经填好的内容。
+        /// </summary>
+        void EnsureLangFile()
+        {
+            try
+            {
+                var dir = System.IO.Path.Combine(ToolRoot, Lang.DirName);
+                Lang.Load(dir);
+
+                static KeyValuePair<string, string> Pair(string key, IReadOnlyDictionary<string, string> names) =>
+                    new(key, names.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) ? v : "");
+
+                // 植物 / 其他：名字来自 LawnStrings
+                var plants = new List<KeyValuePair<string, string>>();
+                var others = new List<KeyValuePair<string, string>>();
+                if (_lists != null)
+                {
+                    var plantSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var k in _lists.Plants) { plantSet.Add(k); plants.Add(Pair(k, _names)); }
+                    foreach (var k in _lists.Keys) if (!plantSet.Contains(k)) others.Add(Pair(k, _names));
+                }
+                Lang.EnsureEntries(System.IO.Path.Combine(dir, Lang.PlantsFile), HeaderPlants, plants);
+                Lang.EnsureEntries(System.IO.Path.Combine(dir, Lang.OthersFile), HeaderOthers, others);
+
+                // 僵尸：名字来自内置僵尸名表
+                var zombies = new List<KeyValuePair<string, string>>();
+                foreach (var k in _zombieKeys)
+                    zombies.Add(new(k, ZombieCn.TryGetValue(k, out var zn) ? zn : ""));
+                Lang.EnsureEntries(System.IO.Path.Combine(dir, Lang.ZombiesFile), HeaderZombies, zombies);
+
+                // 动作：先把内置的填上，浏览时再补新的
+                var actions = new List<KeyValuePair<string, string>>();
+                foreach (var kv in AnimCn.All) actions.Add(new(kv.Key, kv.Value));
+                Lang.EnsureEntries(System.IO.Path.Combine(dir, Lang.ActionsFile), HeaderActions, actions);
+            }
+            catch { }
+        }
+
+        /// <summary>把程序还不认识的动画名追加到 actions.txt。</summary>
+        void EnsureLangAnims(IEnumerable<string> names)
+        {
+            try
+            {
+                var path = Lang.ActionsPath;
+                if (names == null || path.Length == 0) return;
+                var missing = new List<KeyValuePair<string, string>>();
+                foreach (var n in names)
+                    if (!AnimCn.Known(n) && Lang.Animation(n).Length == 0) missing.Add(new(n, ""));
+                Lang.EnsureEntries(path, null, missing);
+            }
+            catch { }
+        }
+
         void ReloadGame()
         {
             _content = CoreSwap.FindContent(_gameDir);
@@ -534,6 +617,7 @@ namespace PlantSwap.App
             _paintCache.Clear();
             BuildPaintIndex();
             RefreshOriginalInfo();
+            EnsureLangFile();
             RebuildFilter();
             RebuildWatchList();
             Say($"已载入 {_content}（植物 {_lists.Plants.Count} / 全部 {_lists.Keys.Count} 组，中文名 {_names.Count}）");
@@ -1449,6 +1533,7 @@ namespace PlantSwap.App
         void RefreshAnimNames()
         {
             try { _animNames = _pvA.Animations.ToArray(); } catch { _animNames = Array.Empty<string>(); }
+            EnsureLangAnims(_animNames);
             _animLabels = _animNames.Select(AnimCn.Label).ToArray();
             _watchAnim = 0;
             var cur = _pvA.CurrentAnimation;
@@ -2258,9 +2343,67 @@ namespace PlantSwap.App
             catch { return true; }
         }
 
+        /// <summary>崩溃日志：真出异常才写一个文件到 &lt;游戏目录&gt;\资源修改器\，正常使用不产生任何东西。</summary>
+        /// <summary>
+        /// 字体要包含的字符区间：等价于 ImGui 的 GetGlyphRangesChineseFull，另外补上
+        /// 箭头(→)、圈数字(①②)、几何图形(▶●■)、杂项符号(★) —— 默认中文范围里没有这些，
+        /// 缺字时 ImGui 会退回成 '?'（动作名「待机→准备」就是这么变成「待机?准备」的）。
+        /// </summary>
+        static readonly ushort[] GlyphRanges = new ushort[]
+        {
+            0x0020, 0x00FF,   // 基本拉丁 + 拉丁补充
+            0x2000, 0x206F,   // 常用标点 — … · ‘’“”
+            0x2190, 0x21FF,   // 箭头 ← ↑ → ↓
+            0x2460, 0x24FF,   // 圈数字 ①②③
+            0x25A0, 0x25FF,   // 几何图形 ▶ ■ ●
+            0x2600, 0x26FF,   // 杂项符号 ★ ☆
+            0x2700, 0x27BF,   // 装饰符号 ✓ ✔
+            0x3000, 0x30FF,   // 中日韩符号与标点 + 假名
+            0x31F0, 0x31FF,   // 假名扩展
+            0xFF00, 0xFFEF,   // 半角/全角字符
+            0xFFFD, 0xFFFD,   // 替换符
+            0x4E00, 0x9FAF,   // 汉字
+            0x0000            // 结束
+        };
+
+        static System.Runtime.InteropServices.GCHandle _glyphRangeHandle;
+
+        internal static IntPtr GlyphRangePtr
+        {
+            get
+            {
+                if (!_glyphRangeHandle.IsAllocated)
+                    _glyphRangeHandle = System.Runtime.InteropServices.GCHandle.Alloc(
+                        GlyphRanges, System.Runtime.InteropServices.GCHandleType.Pinned);
+                return _glyphRangeHandle.AddrOfPinnedObject();
+            }
+        }
+
+        static void WriteCrash(Exception ex)
+        {
+            if (ex == null) return;
+            try
+            {
+                var dir = PvZPlantSwap.Core.PlantSwap.DataDir;
+                System.IO.Directory.CreateDirectory(dir);
+                var path = System.IO.Path.Combine(dir, "crash-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt");
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("时间: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                sb.AppendLine("程序: 资源修改器 " + (typeof(Program).Assembly.GetName().Version?.ToString() ?? "?"));
+                sb.AppendLine("系统: " + Environment.OSVersion.VersionString + "（x64=" + Environment.Is64BitProcess + "）");
+                sb.AppendLine("目录: " + AppContext.BaseDirectory);
+                sb.AppendLine();
+                sb.AppendLine(ex.ToString());
+                System.IO.File.WriteAllText(path, sb.ToString(), new System.Text.UTF8Encoding(false));
+            }
+            catch { }
+        }
+
         [STAThread]
         static void Main()
         {
+            AppDomain.CurrentDomain.UnhandledException += (_, e) => WriteCrash(e.ExceptionObject as Exception);
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) => WriteCrash(e.Exception);
             PrepEnvironment();
             if (!CheckGameDirOrWarn()) return;                                        // 先把 SDL2.dll 解出来/加载好
             try { SDL_SetHint("SDL_IME_SHOW_UI", "1"); } catch (Exception e) { LogIme("SetHint ex " + e.Message); }
@@ -2271,14 +2414,26 @@ namespace PlantSwap.App
             }
             catch (Exception ex)
             {
-                try { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "plantswap_crash.log"), ex.ToString()); } catch { }
-                throw;
+                WriteCrash(ex);
+                try
+                {
+                    const uint MB_OK = 0x0, MB_ICONERROR = 0x10, MB_SETFOREGROUND = 0x10000;
+                    MessageBoxW(IntPtr.Zero,
+                        "程序出错了，已经记下详情：\n\n" +
+                        System.IO.Path.Combine(PvZPlantSwap.Core.PlantSwap.DataDir, "crash-*.txt") + "\n\n" +
+                        "把这个文件发给作者就能定位问题。",
+                        "资源修改器 · 出错了", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+                }
+                catch { }
             }
         }
 
-        /// <summary>开发调试开关：设了环境变量 PLANTSWAP_DEBUG=1 才会写 ime-debug.txt，普通用户目录保持干净。</summary>
+        /// <summary>开发调试开关：环境变量 PLANTSWAP_DEBUG=1，或 ini 里 debug=1。开了才写 ime-debug.txt。</summary>
         internal static bool DebugOn =>
-            string.Equals(Environment.GetEnvironmentVariable("PLANTSWAP_DEBUG"), "1", StringComparison.Ordinal);
+            string.Equals(Environment.GetEnvironmentVariable("PLANTSWAP_DEBUG"), "1", StringComparison.Ordinal) || DebugIni;
+
+        /// <summary>ini 里的 debug=1（由 AppGame 读配置时设置）。</summary>
+        internal static bool DebugIni { get; set; }
 
         internal static string ImeLogPath => System.IO.Path.Combine(PvZPlantSwap.Core.PlantSwap.DataDir, "ime-debug.txt");
 
@@ -2319,7 +2474,7 @@ namespace PlantSwap.App
                 var old = System.IO.Path.Combine(appdata, "PvZPlantSwap");
                 if (string.Equals(old, dataDir, StringComparison.OrdinalIgnoreCase)) return;
                 if (!System.IO.Directory.Exists(old)) return;
-                foreach (var name in new[] { "studio.json", "names_override.json", "app.ico", "icon.png" })
+                foreach (var name in new[] { "app.ico", "icon.png" })
                 {
                     var src = System.IO.Path.Combine(old, name);
                     var dst = System.IO.Path.Combine(dataDir, name);
@@ -2337,7 +2492,14 @@ namespace PlantSwap.App
             // DataDir 现在已经是「exe 同级的资源修改器」，不可写时才退回 %APPDATA%
             string dataDir = PvZPlantSwap.Core.PlantSwap.DataDir;
             MigrateFromAppData(dataDir);
-            string nativeDir = System.IO.Path.Combine(dataDir, "native");
+            // 旧版本叫 native，现在统一成 dll
+            try
+            {
+                var oldNative = System.IO.Path.Combine(dataDir, "native");
+                if (System.IO.Directory.Exists(oldNative)) System.IO.Directory.Delete(oldNative, true);
+            }
+            catch { }
+            string nativeDir = System.IO.Path.Combine(dataDir, "dll");
             System.IO.Directory.CreateDirectory(nativeDir);
             var asm = typeof(Program).Assembly;
             foreach (var name in new[] { "SDL2.dll", "soft_oal.dll" })

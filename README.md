@@ -65,15 +65,23 @@
 ## 系统要求
 
 - Windows 10/11 x64
-- .NET 8 运行时（用 Release 里的单文件版则不需要）
 - 一份《植物娘大战僵尸 HD》
+
+Release 里有两个版本，功能完全一样，按需选一个：
+
+| 文件 | 大小 | 要不要装 .NET 8 |
+| --- | --- | --- |
+| `资源修改器_full.exe` | 约 83 MB | **不用**，运行时已经打包进去 |
+| `资源修改器_lite.exe` | 约 9 MB | **要**，需要 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) |
+
+`lite` 版没装运行时会弹「必须安装 .NET Desktop Runtime 8.0」并给下载链接，不会静默闪退。
 
 ## 快速开始
 
 ### 用打包好的版本
 
-从 [Releases](../../releases) 下载 资源修改器.exe，放到游戏目录（和 Lawn.exe 同级）双击运行。
-首次启动会自动识别游戏目录；识别不到就在顶栏手填。
+从 [Releases](../../releases) 下载 `资源修改器_full.exe`（或 `_lite.exe`），**改名为 `资源修改器.exe`**
+后放到游戏目录（和 Lawn.exe 同级）双击运行。首次启动会自动识别游戏目录；识别不到就在顶栏手填。
 
 也支持便携放置：exe 放在哪个目录，就把那个目录当作游戏目录。
 
@@ -89,13 +97,21 @@ $env:SPINE_MONOGAME_DIR = "<spine-monogame 编译输出目录>"
 dotnet build PlantGirlsSwapStudio.sln -c Release
 ```
 
-单文件发布：
+单文件发布（两个版本）：
 
 ```powershell
+# 完整版：自带运行时，约 83 MB
 dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj -c Release -r win-x64 `
   --self-contained true -p:PublishSingleFile=true `
-  -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+  -p:IncludeNativeLibrariesForSelfExtract=true -o publish_full
+
+# 精简版：需要 .NET 8 Desktop Runtime，约 9 MB
+dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj -c Release -r win-x64 `
+  --no-self-contained -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true -o publish_lite
 ```
+
+细节（包括每次发布前要 `rm -rf` 输出目录）见 [docs/BUILD.md](docs/BUILD.md)。
 
 ## 生成的目录
 
@@ -103,10 +119,17 @@ dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj -c Release -r win-x64 
 
 ```
 资源修改器/
-├── 备份/            首次改动前的全量快照 + manifest.json
-├── Mod/             导出的作品
-└── 资源修改器.ini   配置（可手改，记录了每个模式的选择）
+├── dll/                 运行时解压出来的 SDL2.dll / soft_oal.dll
+├── Language/            中文名表，可手改（plants / zombies / others / actions.txt）
+├── 备份/                首次改动前的全量快照 + manifest.json
+├── Mod/                 导出的作品
+├── 资源修改器.ini        配置（可手改，记录了每个模式的选择）
+├── app.ico / icon.png   窗口图标
+└── crash-*.txt          只在崩溃时出现
 ```
+
+`Language/` 下的四个文件在启动时自动生成，里面**已经填好游戏自带的中文名**，
+想改名直接改、想补名字留空的行填上即可，详见 [docs/FAQ.md](docs/FAQ.md)。
 
 「还原原始」把文件恢复到最初快照；「重建原始备份」以当前状态重新拍一份（确认现在是原版再点）。
 

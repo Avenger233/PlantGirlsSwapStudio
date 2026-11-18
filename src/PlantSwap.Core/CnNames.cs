@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace PvZPlantSwap.Core;
@@ -39,8 +38,8 @@ public static class CnNames
 
     /// <summary>
     /// 解析 Content/LawnStrings_zh_cn.txt 的 [KEY] + 下一行中文名 格式。
-    /// 文件不存在时直接返回空表（与 Python 一致，此时不加别名）。
-    /// 之后合并别名与 %APPDATA%\PvZPlantSwap\names_override.json。
+    /// 文件不存在时直接返回空表（此时只加下面的 Alias 手工别名）。
+    /// 用户自己想补/改名字请用 &lt;游戏目录&gt;\资源修改器\中文名.txt（见 <see cref="Lang"/>）。
     /// </summary>
     public static Dictionary<string, string> LoadCnNames(string content)
     {
@@ -83,25 +82,6 @@ public static class CnNames
         foreach (var kv in Alias)
             if (!names.ContainsKey(kv.Key)) names[kv.Key] = kv.Value;
 
-        var ov = Path.Combine(PlantSwap.DataDir, "names_override.json");
-        if (File.Exists(ov))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(File.ReadAllText(ov, Encoding.UTF8));
-                if (doc.RootElement.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var p in doc.RootElement.EnumerateObject())
-                        if (p.Value.ValueKind == JsonValueKind.String)
-                            names[PlantSwap.Norm(p.Name)] = p.Value.GetString() ?? string.Empty;
-                }
-            }
-            catch
-            {
-                // 覆盖文件损坏时忽略，与 Python 行为一致
-            }
-        }
-
         return names;
     }
 
@@ -111,6 +91,10 @@ public static class CnNames
     /// </summary>
     public static string DisplayName(IReadOnlyDictionary<string, string> names, string key)
     {
+        // 用户自己在「资源修改器\中文名.txt」里填的名字优先
+        var custom = Lang.ResourceName(key);
+        if (custom.Length > 0) return custom + "（" + key + "）";
+
         if (names.TryGetValue(key, out var cn) && !string.IsNullOrEmpty(cn))
             return cn + "（" + key + "）";
 

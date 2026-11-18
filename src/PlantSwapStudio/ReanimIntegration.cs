@@ -111,6 +111,7 @@ namespace PlantSwap.App
             {
                 if (_rvA == null || !_rvA.Ready) { _rvAnimLabels = Array.Empty<string>(); return; }
                 var names = _rvA.Animations;
+                EnsureLangAnims(names);
                 var labels = new List<string>();
                 foreach (var n in names) labels.Add(AnimCn.Label(n));
                 _rvAnimLabels = labels.ToArray();
@@ -191,8 +192,12 @@ namespace PlantSwap.App
             ["Zombie_monk"] = "武僧僵尸",
         };
 
-        static string ZombieLabel(string key) =>
-            ZombieCn.TryGetValue(key, out var cn) ? cn + " (" + key + ")" : key;
+        static string ZombieLabel(string key)
+        {
+            var custom = Lang.Zombie(key);
+            if (custom.Length > 0) return custom + " (" + key + ")";
+            return ZombieCn.TryGetValue(key, out var cn) ? cn + " (" + key + ")" : key;
+        }
 
         // 观赏模式自己的状态：选中的东西、列表范围，跟其它三个模式互不影响
         string _watchKey = "";

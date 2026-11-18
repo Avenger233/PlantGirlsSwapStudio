@@ -18,7 +18,8 @@
 
 ```
 资源修改器/
-├── native/SDL2.dll, soft_oal.dll   ← 运行时解压
+├── dll/SDL2.dll, soft_oal.dll      ← 运行时解压（旧版本叫 native/，启动时自动删掉）
+├── Language/{plants,zombies,others,actions}.txt  ← 中文名表，可手改（见 FAQ「名字」）
 ├── app.ico / icon.png              ← 窗口图标
 ├── 备份/                            ← 资源原始快照
 ├── Mod/                            ← 导出的作品
@@ -88,25 +89,38 @@ dotnet build PlantGirlsSwapStudio.sln -c Release
 | tools/DumpAnims | 导出 Spine 动作名的小工具 |
 | tools/ReanimDump | 导出 / 校验 reanim 的小工具 |
 
-## 4. 单文件发布
+## 4. 发布（两个版本）
+
+功能完全一样，区别只在「运行时打不打包」：
+
+| 版本 | 参数 | 体积 | 用户要装 .NET 8 |
+| --- | --- | --- | --- |
+| 完整版 | `--self-contained true` | ~83 MB | 不用 |
+| 精简版 | `--no-self-contained` | ~9 MB | 要 Desktop Runtime |
 
 ```powershell
-dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj `
-  -c Release -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=true `
-  -p:IncludeNativeLibrariesForSelfExtract=true `
-  -o publish
+# 完整版
+dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj -c Release -r win-x64 `
+  --self-contained true -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true -o publish_full
+
+# 精简版
+dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj -c Release -r win-x64 `
+  --no-self-contained -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true -o publish_lite
 ```
 
-得到 `publish/资源修改器.exe`（约 86 MB，自带运行时，免安装）。
+**为什么一定要 `IncludeNativeLibrariesForSelfExtract`**：ImGui.NET 的 `cimgui.dll` 和 MonoGame 依赖的
+SDL2 / OpenAL 都是原生库，不加这个参数它们会散落在 exe 旁边，就不是「一个文件」了。
+（`native/SDL2.dll` 和 `native/soft_oal.dll` 另外以 EmbeddedResource 打包，运行时解压到 `资源修改器\dll\`。）
 
-**为什么还要 `IncludeNativeLibrariesForSelfExtract`**：MonoGame 依赖 SDL2 和 OpenAL，
-单文件发布时这两个原生 DLL 必须一起打进去，否则双击闪退。
-`native/SDL2.dll` 和 `native/soft_oal.dll` 以 EmbeddedResource 形式打包，运行时解压到临时目录。
-
-> **注意**：重复往同一个 `publish/` 目录发布会得到 9.7 MB 的**框架依赖**版（缺运行时，双击闪退）。
-> 每次发布前先 `rm -rf publish`；正确产物约 86 MB。
+> **注意**
+> 1. 每次发布前先 `rm -rf publish_full publish_lite`。往**同一个**目录重复发布会得到体积不对的产物
+>    （典型现象：完整版变成 9.7 MB，双击闪退）。
+> 2. 精简版要求目标机器装了 **.NET 8 Desktop Runtime**（不是 Console Runtime）。没装时 Windows 会弹
+>    「必须安装 .NET Desktop Runtime 8.0」并给下载链接，不会静默闪退。
+> 3. `src/PlantSwap.Core` 在 csproj 里固定成 `SelfContained=false`：它本身是可执行文件，
+>    不这么写精简版发布会报 NETSDK1151（非自包含不能引用自包含）。完整版不受影响。
 
 ## 5. 部署
 

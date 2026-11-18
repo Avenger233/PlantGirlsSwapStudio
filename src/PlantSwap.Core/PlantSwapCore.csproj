@@ -12,6 +12,12 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!--
+      这个项目本身是可执行文件（带命令行入口），默认会跟着 -r RID 变成自包含，
+      于是「框架依赖」的 GUI 就没法引用它（NETSDK1151）。这里固定成框架依赖：
+      命令行工具需要 .NET 8 运行时，GUI 那边自包含发布不受影响（自包含引用非自包含是允许的）。
+    -->
+    <SelfContained>false</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>

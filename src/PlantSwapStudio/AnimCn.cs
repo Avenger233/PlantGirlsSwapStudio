@@ -110,9 +110,17 @@ namespace PlantSwap.App
             ["1"] = "动作1",
         };
 
+        /// <summary>内置的全部动作名（用来预填 actions.txt）。</summary>
+        public static IReadOnlyDictionary<string, string> All => Map;
+
+        /// <summary>内置表里有没有这个动作名（用来挑出还需要用户翻译的）。</summary>
+        public static bool Known(string name) => !string.IsNullOrEmpty(name) && Map.ContainsKey(name);
+
         public static string Label(string name)
         {
             if (string.IsNullOrEmpty(name)) return name;
+            var custom = PvZPlantSwap.Core.Lang.Animation(name);
+            if (custom.Length > 0) return custom + " (" + name + ")";
             return Map.TryGetValue(name, out var cn) ? cn + " (" + name + ")" : name;
         }
     }
