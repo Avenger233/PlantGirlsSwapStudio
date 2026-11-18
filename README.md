@@ -82,8 +82,9 @@ Release 里有两个版本，功能完全一样，按需选一个：
 
 ### 用打包好的版本
 
-从 [Releases](../../releases) 下载 `PlantGirlsSwapStudio_full.exe`（或 `_lite.exe`），**改名为 `资源修改器.exe`**
-后放到游戏目录（和 Lawn.exe 同级）双击运行。首次启动会自动识别游戏目录；识别不到就在顶栏手填。
+从 [Releases](../../releases) 下载 `PlantGirlsSwapStudio_full.exe`（或 `_lite.exe`），
+**直接**放到游戏目录（和 Lawn.exe 同级）双击运行即可，文件名不用改。
+首次启动会自动识别游戏目录；识别不到就在顶栏手填。
 
 也支持便携放置：exe 放在哪个目录，就把那个目录当作游戏目录。
 
