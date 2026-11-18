@@ -177,7 +177,7 @@ docs/                   构建、架构、格式说明
 
 ## License
 
-[MIT](LICENSE) © 2026 PlantGirlsSwapStudio contributors
+[MIT](LICENSE) © 2026 Avenger233
 
 第三方组件许可见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
