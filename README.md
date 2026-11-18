@@ -8,6 +8,8 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D4)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+[English](README.en.md)
+
 <!-- 建议放一张界面截图：screenshots/main.png，然后取消下一行注释 -->
 <!-- ![界面预览](screenshots/main.png) -->
 
@@ -183,15 +185,4 @@ docs/                   构建、架构、格式说明
 
 ---
 
-## English
-
-A file-level asset swapper / viewer for the *Plants vs. Zombies* fangame
-**"植物娘大战僵尸 HD"** (PlantGirls vs Zombies HD), with live Spine and reanim preview.
-
-- **Replace / Swap** – copy or exchange a plant's assets with another plant's
-- **Watch** – play the game's own Spine rigs and reanim frame animations, read-only
-- **Mod** – export a plant's assets, edit the textures, import them back
-
-No game assets are included; you need your own copy of the game.
-Requires Windows x64 and .NET 8 (or the self-contained release build).
-Build instructions: [docs/BUILD.md](docs/BUILD.md). Licensed under MIT.
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
