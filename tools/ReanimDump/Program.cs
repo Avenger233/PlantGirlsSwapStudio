@@ -18,6 +18,7 @@ internal static class Program
         var dir = DefaultReanimDir;
         var verify = false;
         var framesFile = (string?)null;
+
         var trackName = (string?)null;
         var files = new List<string>();
 
@@ -26,6 +27,7 @@ internal static class Program
             switch (args[i])
             {
                 case "--verify": verify = true; break;
+                case "--images": _showImages = true; break;
                 case "--dir":
                     if (i + 1 < args.Length) dir = args[++i];
                     break;
@@ -96,6 +98,8 @@ internal static class Program
         Console.WriteLine("  ReanimDump --frames <file> [--track NAME]  打印某轨道前 8 帧（原始 + 补全后）");
     }
 
+    static bool _showImages;
+
     private static void DumpFile(string path)
     {
         var data = ReanimData.Load(path);
@@ -120,7 +124,7 @@ internal static class Program
 
         var images = data.ImageNames;
         Console.WriteLine("  图片 id: " + images.Count + " 个不同名字");
-        foreach (var img in images.Take(3)) Console.WriteLine("    - " + img);
+        foreach (var img in images.Take(_showImages ? 200 : 3)) Console.WriteLine("    - " + img);
 
         var first = data.Tracks.Count > 0 && data.Tracks[0].FrameCount > 0 ? data.Tracks[0].Transforms[0] : null;
         if (first is not null)
