@@ -71,8 +71,8 @@ Release 里有两个版本，功能完全一样，按需选一个：
 
 | 文件 | 大小 | 要不要装 .NET 8 |
 | --- | --- | --- |
-| `资源修改器_full.exe` | 约 83 MB | **不用**，运行时已经打包进去 |
-| `资源修改器_lite.exe` | 约 9 MB | **要**，需要 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) |
+| `PlantGirlsSwapStudio_full.exe` | 约 83 MB | **不用**，运行时已经打包进去 |
+| `PlantGirlsSwapStudio_lite.exe` | 约 9 MB | **要**，需要 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) |
 
 `lite` 版没装运行时会弹「必须安装 .NET Desktop Runtime 8.0」并给下载链接，不会静默闪退。
 
@@ -80,7 +80,7 @@ Release 里有两个版本，功能完全一样，按需选一个：
 
 ### 用打包好的版本
 
-从 [Releases](../../releases) 下载 `资源修改器_full.exe`（或 `_lite.exe`），**改名为 `资源修改器.exe`**
+从 [Releases](../../releases) 下载 `PlantGirlsSwapStudio_full.exe`（或 `_lite.exe`），**改名为 `资源修改器.exe`**
 后放到游戏目录（和 Lawn.exe 同级）双击运行。首次启动会自动识别游戏目录；识别不到就在顶栏手填。
 
 也支持便携放置：exe 放在哪个目录，就把那个目录当作游戏目录。

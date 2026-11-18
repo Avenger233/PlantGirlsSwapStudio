@@ -15,7 +15,7 @@
   开了才写 `ime-debug.txt`（输入法交互 + 启动耗时打点）；默认关闭
 - 新增崩溃日志：未处理异常会写 `资源修改器\crash-日期-时间.txt`（异常、堆栈、版本、系统），
   并弹窗告知路径；正常使用不生成任何文件
-- 发布两个版本：`资源修改器_full.exe`（自带运行时，~83 MB）和 `资源修改器_lite.exe`
+- 发布两个版本：`PlantGirlsSwapStudio_full.exe`（自带运行时，~83 MB）和 `PlantGirlsSwapStudio_lite.exe`
   （框架依赖，~9 MB，需要 .NET 8 Desktop Runtime），功能完全一样
 - `PlantSwapCore` 固定 `SelfContained=false`，否则精简版发布会报 NETSDK1151
 - 修「读 A 存 B」：ini 里的 `game=` 把游戏目录改到别处时，配置路径会跟着变，原来会拿旧路径读、
