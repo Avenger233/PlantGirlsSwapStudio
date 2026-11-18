@@ -47,8 +47,7 @@ Each mode remembers its own selection and preview state.
 | `PlantGirlsSwapStudio_full.exe` | ~83 MB | **No** — runtime is bundled |
 | `PlantGirlsSwapStudio_lite.exe` | ~9 MB | **Yes** — [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) |
 
-Both are functionally identical. Just drop the downloaded file next to `Lawn.exe` in the game root and run it —
-the file name does not matter and does not need to be changed.
+Both are functionally identical. Drop the downloaded file into the game root (next to `Lawn.exe`) and run it.
 
 The `lite` build shows a "must install .NET Desktop Runtime 8.0" dialog with a download link if the runtime is missing.
 
