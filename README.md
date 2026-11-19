@@ -64,6 +64,21 @@
 - 用任意图像编辑器改里面的 png
 - 「导入选中作品」按原路径写回游戏（导入前自动备份）
 
+## 贴图编辑器（独立程序）
+
+`资源编辑器.exe` 是**另一个程序**，专门用来改 Mod 里的立绘图集。放进游戏根目录打开，
+会自动列出 `Content/spanim`；也可以「打开文件夹」指向 `资源修改器\Mod\<作品>`。
+
+- 画布铺开整张图集，按 `.atlas` 把每个部件框出来，悬停显示部件名
+- 点框（或点右边列表）选中部件，可以：**换成别的图**（自动缩放贴进该框）、
+  **导出部件**（裁成独立 png）、**清空**（填透明，等于摘掉这个部件）
+- 滚轮缩放、右键拖动、双击复位
+- 「保存 png」写回文件；第一次保存会留一份 `<名字>.orig.png`，「还原原图」一键回滚
+- 撤销最多 5 步
+- 在 atlas 里旋转存储的部件（`rotate:90/270`）暂时只能看不能改，面板上会说明
+
+改完回到「资源修改器」，用「导入选中作品」写回游戏即可。
+
 ## 系统要求
 
 - Windows 10/11 x64
@@ -152,6 +167,7 @@ dotnet run --project src/PlantSwap.Core -- swap agave blover --apply --game "...
 ```
 src/PlantSwap.Core/     资源扫描、配对、备份/还原、reanim 解析（无 UI 依赖）
 src/PlantSwapStudio/    MonoGame + ImGui 界面，Spine / reanim 实时预览
+src/PlantSwapEditor/    独立的贴图编辑器（按 atlas 部件换图 / 导出 / 清空）
 tools/DumpAnims/        导出全部 Spine 动作名（维护中文动作表用）
 tools/ReanimDump/       导出 / 校验 reanim 数据
 docs/                   构建、架构、格式说明
