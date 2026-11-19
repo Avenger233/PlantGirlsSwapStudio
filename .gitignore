@@ -4,8 +4,6 @@ obj/
 publish/
 publish_full/
 publish_lite/
-pub_ed_full/
-pub_ed_lite/
 dist/
 *.user
 *.suo

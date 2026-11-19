@@ -86,7 +86,6 @@ dotnet build PlantGirlsSwapStudio.sln -c Release
 | --- | --- |
 | src/PlantSwap.Core | `PlantSwapCore.dll` + 可执行的命令行入口 |
 | src/PlantSwapStudio | `资源修改器.dll`（MonoGame 桌面程序） |
-| src/PlantSwapEditor | `资源编辑器.dll`（贴图编辑器，独立程序） |
 | tools/DumpAnims | 导出 Spine 动作名的小工具 |
 | tools/ReanimDump | 导出 / 校验 reanim 的小工具 |
 
@@ -111,8 +110,6 @@ dotnet publish src/PlantSwapStudio/PlantSwapStudio.csproj -c Release -r win-x64 
   -p:IncludeNativeLibrariesForSelfExtract=true -o publish_lite
 ```
 
-贴图编辑器（`资源编辑器.exe`）是独立程序，同样两个版本，把上面的 csproj 换成
-`src/PlantSwapEditor/PlantSwapEditor.csproj` 即可，产物是 `资源编辑器.exe`。
 
 **为什么一定要 `IncludeNativeLibrariesForSelfExtract`**：ImGui.NET 的 `cimgui.dll` 和 MonoGame 依赖的
 SDL2 / OpenAL 都是原生库，不加这个参数它们会散落在 exe 旁边，就不是「一个文件」了。
