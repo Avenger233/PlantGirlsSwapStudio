@@ -786,7 +786,7 @@ namespace PlantSwap.App
             if (idx < 0 || idx >= list.Count) return;
             var key = list[idx];
             if (isA) { _selA = idx; if (_keyA != key) { _keyA = key; _pvA.Load(key); SelectReanimFor(key); _sheetA = LoadPainting(key); if (_mode == 2) RefreshAnimNames(); } }
-            else { _selB = idx; if (_keyB != key) { _keyB = key; _pvB.Load(key); _sheetB = LoadPainting(key); } }
+            else { _selB = idx; if (_keyB != key) { _keyB = key; _pvB.Load(key); SelectReanimForB(key); _sheetB = LoadPainting(key); } }
         }
 
         Texture2D LoadSheet(string key)
@@ -1122,15 +1122,17 @@ namespace PlantSwap.App
             bool useSpineA = _portraitMode && _pvA.Ready && !_rvZombie;
             bool useReanimA = !useSpineA && ReanimVisible;
             bool useSpineB = (_mode == 0 || _mode == 1) && _portraitMode && _pvB.Ready;
+            bool useReanimB = !useSpineB && ReanimVisibleB;
             if (useSpineA) _pvA.Draw(_rectA);
             if (useReanimA) { try { _rvA.Draw(_rectA); } catch { } }
             if (useSpineB) _pvB.Draw(_rectB);
+            if (useReanimB) { try { _rvB.Draw(_rectB); } catch { } }
             if (_mode == 3 && _pvMod.Ready) _pvMod.Draw(_rectMod);
-            if ((!useSpineA && !useReanimA) || !useSpineB)
+            if ((!useSpineA && !useReanimA) || (!useSpineB && !useReanimB))
             {
                 _batch.Begin(samplerState: SamplerState.LinearClamp);
                 if (!useSpineA && !useReanimA) DrawSheet(_sheetA, _rectA);
-                if (!useSpineB) DrawSheet(_sheetB, _rectB);
+                if (!useSpineB && !useReanimB) DrawSheet(_sheetB, _rectB);
                 _batch.End();
             }
 
@@ -1480,6 +1482,7 @@ namespace PlantSwap.App
         {
             _log.Clear();
             _rvA?.Clear();
+            _rvB?.Clear();
             _sheetA = null; _sheetB = null;
             _pvA.Clear(); _pvB.Clear();
             if (_mode == 2)
@@ -1500,7 +1503,7 @@ namespace PlantSwap.App
             else
             {
                 if (!string.IsNullOrEmpty(_keyA)) { _pvA.Load(_keyA); SelectReanimFor(_keyA); _sheetA = LoadPainting(_keyA); }
-                if (!string.IsNullOrEmpty(_keyB)) { _pvB.Load(_keyB); _sheetB = LoadPainting(_keyB); }
+                if (!string.IsNullOrEmpty(_keyB)) { _pvB.Load(_keyB); SelectReanimForB(_keyB); _sheetB = LoadPainting(_keyB); }
                 _pvA.ResetDefaultAnimation(); _pvB.ResetDefaultAnimation();
                 _pvA.ResetView(); _pvB.ResetView();
                 RefreshAnimNames();
@@ -1878,7 +1881,7 @@ namespace PlantSwap.App
             }
             else label = string.IsNullOrEmpty(key) ? title : title + "：" + CnNames.DisplayName(_names, key);
             ImGui.TextColored(new System.Numerics.Vector4(1f, 0.84f, 0.42f, 1), label);
-            var rvBadge = pv == _pvA ? ReanimBadge() : null;
+            var rvBadge = pv == _pvA ? ReanimBadge() : (pv == _pvB ? ReanimBadgeB() : null);
             if (rvBadge != null) { ImGui.SameLine(); ImGui.TextColored(new System.Numerics.Vector4(0.55f, 0.85f, 0.6f, 1), rvBadge); }
             else if (!pv.Ready && !hasSheet) { ImGui.SameLine(); ImGui.TextDisabled("（无可用预览）"); }
             else if (!pv.Ready) { ImGui.SameLine(); ImGui.TextDisabled("（原版植物 · 显示原画）"); }

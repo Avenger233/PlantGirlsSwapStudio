@@ -15,6 +15,7 @@ namespace PlantSwap.App
     public partial class AppGame
     {
         ReanimPreview _rvA;
+        ReanimPreview _rvB;   // B 面板自己的 reanim 预览（原版植物没有 Spine，A 有兜底，B 也得有）
         /// <summary>观赏模式页签：0=植物（默认），1=僵尸。</summary>
         int _watchTab;   // 旧版页签状态，只为兼容老 ini 保留
         bool _rvZombie => _mode == 2 && _watchZombie;
@@ -87,11 +88,16 @@ namespace PlantSwap.App
         /// <summary>当前 A 面板是不是在放 reanim（僵尸页，或植物页里没有 Spine 的植物）。</summary>
         bool ReanimVisible => _rvA != null && _rvA.Ready && (_rvZombie || (_portraitMode && !_pvA.Ready));
 
+        /// <summary>B 面板是不是在放 reanim（替换 / 互换模式里没有 Spine 的植物）。</summary>
+        bool ReanimVisibleB => (_mode == 0 || _mode == 1) && _rvB != null && _rvB.Ready
+                               && _portraitMode && _pvB != null && !_pvB.Ready;
+
         void InitReanim()
         {
             try
             {
                 if (_rvA == null) _rvA = new ReanimPreview(GraphicsDevice, _cm, _content);
+                if (_rvB == null) _rvB = new ReanimPreview(GraphicsDevice, _cm, _content);
                 _zombieKeys = ReanimPreview.ListReanims(_content, "Zombie");
                 if (_zombieSel > _zombieKeys.Count) _zombieSel = 0;
             }
@@ -103,6 +109,12 @@ namespace PlantSwap.App
         {
             try { _rvA?.Load(key); } catch (Exception ex) { Say("reanim 载入失败：" + ex.Message); }
             RefreshReanimAnimNames();
+        }
+
+        /// <summary>B 面板的 reanim（只用于替换 / 互换模式的预览兜底，没有动作下拉）。</summary>
+        void SelectReanimForB(string key)
+        {
+            try { _rvB?.Load(key); } catch { }
         }
 
         void RefreshReanimAnimNames()
@@ -124,44 +136,50 @@ namespace PlantSwap.App
 
         void TickReanim(float dt)
         {
-            if (_rvA == null) return;
             try
             {
-                _rvA.Paused = _paused;
-                _rvA.Update(dt);
-                }
+                if (_rvA != null) { _rvA.Paused = _paused; _rvA.Update(dt); }
+                if (_rvB != null) { _rvB.Paused = _paused; _rvB.Update(dt); }
+            }
             catch { }
         }
 
-        /// <summary>鼠标在 A 面板上且是 reanim 预览时，接管滚轮缩放 / 拖动平移 / 双击复位。</summary>
+        /// <summary>鼠标在 A / B 面板上且是 reanim 预览时，接管滚轮缩放 / 拖动平移 / 双击复位。</summary>
         bool HandleReanimMouse(MouseState ms, ImGuiIOPtr io)
         {
-            if (_rvA == null || !ReanimVisible) return false;
-            if (!_rectA.Contains(ms.Position) || io.WantCaptureMouse) return false;
+            if (io.WantCaptureMouse) return false;
+            bool overA = _rvA != null && ReanimVisible && _rectA.Contains(ms.Position);
+            bool overB = _rvB != null && ReanimVisibleB && _rectB.Contains(ms.Position);
+            if (!overA && !overB) return false;
+            var rv = overA ? _rvA : _rvB;
 
             int wheel = ms.ScrollWheelValue;
             if (!_wheelInit) { _lastWheel = wheel; _wheelInit = true; }
             if (wheel != _lastWheel)
             {
                 float d = (wheel - _lastWheel) / 120f;
-                _rvA.Zoom = Math.Clamp(_rvA.Zoom * (float)Math.Pow(1.12, d), 0.2f, 8f);
+                rv.Zoom = Math.Clamp(rv.Zoom * (float)Math.Pow(1.12, d), 0.2f, 8f);
                 _lastWheel = wheel;
             }
             if (ms.LeftButton == ButtonState.Pressed && !_wasDown)
             {
                 double now = gameTimeSec();
-                if (now - _lastClickTimeA < 0.32) { _rvA.Zoom = 1f; _rvA.Pan = Vector2.Zero; }
-                _lastClickTimeA = now;
+                ref double last = ref (overA ? ref _lastClickTimeA : ref _lastClickTimeB);
+                if (now - last < 0.32) { rv.Zoom = 1f; rv.Pan = Vector2.Zero; }
+                last = now;
             }
             _wasDown = ms.LeftButton == ButtonState.Pressed;
             bool down = ms.LeftButton == ButtonState.Pressed || ms.RightButton == ButtonState.Pressed || ms.MiddleButton == ButtonState.Pressed;
             if (down)
             {
-                if (_dragA) _rvA.Pan += new Vector2(ms.X - _lastMouse.X, ms.Y - _lastMouse.Y);
-                _dragA = true;
+                if (overA ? _dragA : _dragB) rv.Pan += new Vector2(ms.X - _lastMouse.X, ms.Y - _lastMouse.Y);
+                if (overA) _dragA = true; else _dragB = true;
                 _lastMouse = ms.Position;
             }
-            else _dragA = false;
+            else
+            {
+                if (overA) _dragA = false; else _dragB = false;
+            }
             return true;
         }
 
@@ -359,6 +377,15 @@ namespace PlantSwap.App
                 return "（缺 " + _rvA.MissingRegions + " 个图块，预览可能不完整）";
             if (_rvZombie) return "（原版僵尸 · reanim " + _rvA.CurrentAnimation + "）";
             return "（原版植物 · reanim " + _rvA.CurrentAnimation + "）";
+        }
+
+        /// <summary>B 面板的角标：B 只会是植物。</summary>
+        string ReanimBadgeB()
+        {
+            if (_rvB == null || !_rvB.Ready || !ReanimVisibleB) return null;
+            if (_rvB.MissingRegions >= 8)
+                return "（缺 " + _rvB.MissingRegions + " 个图块，预览可能不完整）";
+            return "（原版植物 · reanim " + _rvB.CurrentAnimation + "）";
         }
 
         /// <summary>开发/验收用：--zombie 直接进僵尸页，--anim walk 指定动作，--plant cherrybomb 看植物。</summary>
